@@ -291,11 +291,6 @@ class VM(virt_vm.BaseVM):
         :raise VMDeadError: If the VM is dead
         :raise: Various monitor exceptions if the monitor is unresponsive
         """
-        self.verify_disk_image_bootable()
-        self.verify_userspace_crash()
-        self.verify_kernel_crash()
-        self.verify_illegal_instruction()
-        self.verify_kvm_internal_error()
         try:
             virt_vm.BaseVM.verify_alive(self)
             if self.monitor:
@@ -304,6 +299,11 @@ class VM(virt_vm.BaseVM):
             raise virt_vm.VMDeadError(
                 self.process.get_status(), self.process.get_output()
             )
+        self.verify_disk_image_bootable()
+        self.verify_userspace_crash()
+        self.verify_kernel_crash()
+        self.verify_illegal_instruction()
+        self.verify_kvm_internal_error()
 
     def is_alive(self):
         """
@@ -3118,8 +3118,12 @@ class VM(virt_vm.BaseVM):
             devices.insert(StrDev("noshutdown", cmdline="-no-shutdown"))
 
         user_runas = params.get("user_runas")
-        if devices.has_option("runas") and user_runas:
-            devices.insert(StrDev("runas", cmdline="-runas %s" % user_runas))
+        if devices.has_option("run-with") and user_runas:
+            devices.insert(
+                StrDev("user_runas", cmdline="-run-with user=%s" % user_runas)
+            )
+        elif devices.has_option("runas") and user_runas:
+            devices.insert(StrDev("user_runas", cmdline="-runas %s" % user_runas))
 
         if params.get("enable_sga") == "yes":
             devices.insert(StrDev("sga", cmdline=add_sga(devices)))
@@ -5762,7 +5766,7 @@ class VM(virt_vm.BaseVM):
         Override BaseVM savevm method
         """
         self.verify_status("paused")  # Throws exception if not
-        LOG.debug("Saving VM %s to %s" % (self.name, tag_name))
+        LOG.debug("Saving snapshot %s from VM %s", tag_name, self.name)
         self.monitor.send_args_cmd("savevm id=%s" % tag_name)
         self.monitor.cmd("system_reset")
         self.verify_status("paused")  # Throws exception if not
@@ -5772,8 +5776,17 @@ class VM(virt_vm.BaseVM):
         Override BaseVM loadvm method
         """
         self.verify_status("paused")  # Throws exception if not
-        LOG.debug("Loading VM %s from %s" % (self.name, tag_name))
+        LOG.debug("Loading snapshot %s from VM %s", tag_name, self.name)
         self.monitor.send_args_cmd("loadvm id=%s" % tag_name)
+        self.verify_status("paused")  # Throws exception if not
+
+    def delvm(self, tag_name):
+        """
+        Override BaseVM delvm method
+        """
+        self.verify_status("paused")  # Throws exception if not
+        LOG.debug("Deleting snapshot %s from VM %s", tag_name, self.name)
+        self.monitor.send_args_cmd("delvm id=%s" % tag_name)
         self.verify_status("paused")  # Throws exception if not
 
     def pause(self):
