@@ -77,38 +77,45 @@ def get_pf_info(session=None):
             "lspci -v -s %s" % pci, shell=True, session=session
         )
         if re.search("SR-IOV", output):
-            pf_driver = re.search("driver in use: (.*)", output)[1]
-            tmp_info = {"driver": pf_driver, "pci_id": pci}
+            match = re.search("driver in use: (.*)", output)
+            if match:
+                pf_driver = match[1]
+                tmp_info = {"driver": pf_driver, "pci_id": pci}
 
-            iface_name = get_iface_name(pci, session=session)
-            runner = None if not session else session.cmd
-            tmp_info.update(
-                {
-                    "iface": iface_name.strip(),
-                    "status": utils_net.get_net_if_operstate(
-                        iface_name.strip(), runner=runner
-                    ),
-                }
-            )
-            pf_info.update({pci: tmp_info})
+                iface_name = get_iface_name(pci, session=session)
+                runner = None if not session else session.cmd
+                tmp_info.update(
+                    {
+                        "iface": iface_name.strip(),
+                        "status": utils_net.get_net_if_operstate(
+                            iface_name.strip(), runner=runner
+                        ),
+                    }
+                )
+                pf_info.update({pci: tmp_info})
+            else:
+                LOG.warning(f"There is some Ethernet without driver with pci: {pci}")
     LOG.debug("PF info: %s.", pf_info)
     return pf_info
 
 
-def get_pf_pci(session=None):
+def get_pf_pci(session=None, test_pf=None):
     """
-    Get the pci id of the available(status='up') PF.
+    Get the pci id of the available(status='up') or a given PF.
     If there is no available PF, return the first one.
 
     :param session: The session object to the host
+    :param test_pf: PF to test
     :return: pf's pci id, eg. 0000:05:10.1
     """
     pf_info = get_pf_info(session=session)
     for pci_info in pf_info.values():
-        if pci_info.get("status", "") == "up":
-            return pci_info.get("pci_id")
-    if pf_info:
-        return list(pf_info.values())[0].get("pci_id")
+        if test_pf:
+            if test_pf == pci_info.get("iface"):
+                return pci_info.get("pci_id")
+        else:
+            if pci_info.get("status", "") == "up":
+                return pci_info.get("pci_id")
 
 
 def get_pf_info_by_pci(pci_id, session=None):

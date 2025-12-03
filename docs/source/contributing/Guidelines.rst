@@ -5,7 +5,11 @@ Contributions Guidelines and Tips
 Code
 ====
 
-Contributions of additional tests and code are always welcome. If in
+Contributions of additional tests and code are always welcome.
+
+For more in-depth technical information, please refer to the `DeepWiki <https://deepwiki.com/avocado-framework/avocado-vt>`__.
+
+If in
 doubt, and/or for advice on approaching a particular problem, please
 contact the projects members (see section _collaboration) Before submitting code,
 please review the `git repository configuration guidelines <https://autotest.readthedocs.io/en/latest/main/developer/GitWorkflow.html>`_.
@@ -77,8 +81,8 @@ Rules for Maintainers
 Rules for Contributors
 ======================
 
-1. [Must] Coding style should conform to what's enforced by black (see ``selftests/style.sh``)
-2. [Must] PR commit message is meaningful. Refer to the link on how to write a good commit message
+1. [Must] Coding style should conform to what's enforced by black (see ``./avocado-static-checks/check-style``)
+2. [Must] PR commit message is meaningful. Refer to `this link <https://avocado-framework.readthedocs.io/en/latest/guides/contributor/chapters/styleguides.html>`_ on how to write a good commit message
 3. [Must] Travis CI pass and no conflict
 4. [Must] Provide test results. If no, provide justification. Apply to any PR
   One of below options should be aligned:

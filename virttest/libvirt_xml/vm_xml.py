@@ -17,7 +17,6 @@ LOG = logging.getLogger("avocado." + __name__)
 
 
 class VMXMLDevices(list):
-
     """
     List of device instances from classes handed out by librarian.get()
     """
@@ -58,7 +57,6 @@ class VMXMLDevices(list):
 
 
 class VMXMLBase(LibvirtXMLBase):
-
     """
     Accessor methods for VMXML class properties (items in __slots__)
 
@@ -753,7 +751,6 @@ class VMXMLBase(LibvirtXMLBase):
 
 
 class VMXML(VMXMLBase):
-
     """
     Higher-level manipulations related to VM's XML or guest/host state
     """
@@ -768,6 +765,24 @@ class VMXML(VMXMLBase):
         super(VMXML, self).__init__(virsh_instance=virsh_instance)
         # Setup some bare-bones XML to build upon
         self.xml = "<domain type='%s'></domain>" % hypervisor_type
+
+    @staticmethod  # static method (no self) needed b/c calls VMXML.__new__
+    def new_from_managedsave_dumpxml(vm_name, options="", virsh_instance=base.virsh):
+        """
+        Return new VMXML instance from virsh managedsave-dumpxml command
+
+        :param vm_name: Name of VM to dumpxml
+        :param virsh_instance: virsh module or instance to use
+        :return: New initialized VMXML instance
+        """
+        # TODO: Look up hypervisor_type on incoming XML
+        vmxml = VMXML(virsh_instance=virsh_instance)
+        result = virsh_instance.managedsave_dumpxml(vm_name, extra=options)
+        if result.exit_status == 0:
+            vmxml["xml"] = result.stdout_text.strip()
+            return vmxml
+        else:
+            return None
 
     @staticmethod  # static method (no self) needed b/c calls VMXML.__new__
     def new_from_dumpxml(vm_name, options="", virsh_instance=base.virsh):
@@ -842,7 +857,7 @@ class VMXML(VMXMLBase):
         func_used = backup.undefine if backup else self.undefine
         if not func_used(options, virsh_instance=virsh_instance):
             raise xcepts.LibvirtXMLError("Failed to undefine %s." % self.vm_name)
-        result_define = virsh_instance.define(self.xml)
+        result_define = virsh_instance.define(self.xml, ignore_status=True)
         # Vm define failed
         if result_define.exit_status:
             if backup:
@@ -2068,7 +2083,6 @@ class VMXML(VMXMLBase):
 
 
 class VMCPUXML(base.LibvirtXMLBase):
-
     """
     Higher-level manipulations related to VM's XML(CPU)
     """
@@ -2202,7 +2216,6 @@ class VMCPUXML(base.LibvirtXMLBase):
 
     # Sub-element of cpu
     class InterconnectsXML(base.LibvirtXMLBase):
-
         """Interconnects element of numa"""
 
         __slots__ = ("latency", "bandwidth")
@@ -2503,7 +2516,6 @@ class VMCPUXML(base.LibvirtXMLBase):
 
 # Sub-element of cpu/numa
 class NumaCellXML(base.LibvirtXMLBase):
-
     """
     Cell element of numa
     """
@@ -2667,7 +2679,6 @@ class NumaCellXML(base.LibvirtXMLBase):
 
 
 class CellCacheXML(base.LibvirtXMLBase):
-
     """
     Cache of cell
     """
@@ -2747,7 +2758,6 @@ class CellCacheXML(base.LibvirtXMLBase):
 
 
 class VMClockXML(base.LibvirtXMLBase):
-
     """
     Higher-level manipulations related to VM's XML(Clock)
     """
@@ -2800,7 +2810,6 @@ class VMClockXML(base.LibvirtXMLBase):
 
     # Sub-element of clock
     class TimerXML(base.LibvirtXMLBase):
-
         """Timer element of clock"""
 
         __slots__ = (
@@ -2922,7 +2931,6 @@ class VMClockXML(base.LibvirtXMLBase):
 
 
 class CacheTuneXML(base.LibvirtXMLBase):
-
     """CacheTune XML"""
 
     __slots__ = ("vcpus", "caches", "monitors")
@@ -3015,7 +3023,6 @@ class CacheTuneXML(base.LibvirtXMLBase):
 
     # Sub-element of CacheTuneXML
     class CacheXML(base.LibvirtXMLBase):
-
         """Cache element of CacheTuneXML"""
 
         __slots__ = ("id", "level", "type", "size", "unit")
@@ -3070,7 +3077,6 @@ class CacheTuneXML(base.LibvirtXMLBase):
 
     # Sub-element of CacheTuneXML
     class MonitorXML(base.LibvirtXMLBase):
-
         """Monitor element of CacheTuneXML"""
 
         __slots__ = ("level", "vcpus")
@@ -3101,7 +3107,6 @@ class CacheTuneXML(base.LibvirtXMLBase):
 
 
 class MemoryTuneXML(base.LibvirtXMLBase):
-
     """Event element of perf"""
 
     __slots__ = ("vcpus", "nodes", "monitors")
@@ -3194,7 +3199,6 @@ class MemoryTuneXML(base.LibvirtXMLBase):
 
     # Sub-element of MemoryTuneXML
     class NodeXML(base.LibvirtXMLBase):
-
         """Node element of MemoryTuneXML"""
 
         __slots__ = ("id", "bandwidth")
@@ -3225,7 +3229,6 @@ class MemoryTuneXML(base.LibvirtXMLBase):
 
     # Sub-element of MemoryTuneXML
     class MonitorXML(base.LibvirtXMLBase):
-
         """Monitor element of MemoryTuneXML"""
 
         __slots__ = ("vcpus",)
@@ -3519,7 +3522,6 @@ class VMCPUTuneXML(base.LibvirtXMLBase):
 
 
 class VMOSXML(base.LibvirtXMLBase):
-
     """
     Class to access <os> tag of domain XML.
 
@@ -3787,7 +3789,6 @@ class VMOSXML(base.LibvirtXMLBase):
 
 
 class VMPMXML(base.LibvirtXMLBase):
-
     """
     VM power management tag XML class
 
@@ -3818,7 +3819,6 @@ class VMPMXML(base.LibvirtXMLBase):
 
 
 class VMFeaturesXML(base.LibvirtXMLBase):
-
     """
     Class to access <features> tag of domain XML.
 
@@ -3837,6 +3837,7 @@ class VMFeaturesXML(base.LibvirtXMLBase):
         "smm",
         "hpt",
         "htm",
+        "hyperv",
         "smm_tseg_unit",
         "smm_tseg",
         "nested_hv",
@@ -3996,7 +3997,6 @@ class VMFeaturesXML(base.LibvirtXMLBase):
 
 
 class VMVCPUSXML(base.LibvirtXMLBase):
-
     """
     vcpus tag XML class
 
@@ -4044,7 +4044,6 @@ class VMVCPUSXML(base.LibvirtXMLBase):
 
 # Sub-element of memoryBacking
 class VMHugepagesXML(base.LibvirtXMLBase):
-
     """hugepages element"""
 
     __slots__ = ("pages",)
@@ -4064,7 +4063,6 @@ class VMHugepagesXML(base.LibvirtXMLBase):
 
     # Sub-element of hugepages
     class PageXML(base.LibvirtXMLBase):
-
         """Page element of hugepages"""
 
         __slots__ = ("size", "unit", "nodeset")
@@ -4124,7 +4122,6 @@ class VMHugepagesXML(base.LibvirtXMLBase):
 
 
 class VMMemBackingXML(base.LibvirtXMLBase):
-
     """
     memoryBacking tag XML class
 
@@ -4188,7 +4185,6 @@ class VMMemBackingXML(base.LibvirtXMLBase):
 
 
 class VMMemTuneXML(base.LibvirtXMLBase):
-
     """
     Memory Tuning tag XML class
 
@@ -4272,7 +4268,6 @@ class VMMemTuneXML(base.LibvirtXMLBase):
 
 
 class VMPerfXML(base.LibvirtXMLBase):
-
     """
     perf tag XML class
 
@@ -4298,7 +4293,6 @@ class VMPerfXML(base.LibvirtXMLBase):
 
     # Sub-element of perf
     class EventXML(base.LibvirtXMLBase):
-
         """Event element of perf"""
 
         __slots__ = ("name", "enabled")
@@ -4361,7 +4355,6 @@ class VMPerfXML(base.LibvirtXMLBase):
 
 
 class VMIothreadidsXML(base.LibvirtXMLBase):
-
     """
     iothreadids tag XML class
 
@@ -4536,11 +4529,13 @@ class VMFeaturesHypervXML(base.LibvirtXMLBase):
             parent_xpath="/",
             tag_name="reenlightenment",
         )
-        accessors.XMLElementDict(
+        accessors.XMLElementNest(
             property_name="tlbflush",
             libvirtxml=self,
             parent_xpath="/",
+            subclass=VMFeaturestlbflushXML,
             tag_name="tlbflush",
+            subclass_dargs={"virsh_instance": virsh_instance},
         )
         accessors.XMLElementDict(
             property_name="ipi", libvirtxml=self, parent_xpath="/", tag_name="ipi"
@@ -4602,7 +4597,6 @@ class VMFeaturesStimerXML(base.LibvirtXMLBase):
 
 
 class VMFeaturesHptXML(base.LibvirtXMLBase):
-
     """
     Hpt tag XML class of features tag
 
@@ -4689,7 +4683,6 @@ class VMKeywrapXML(base.LibvirtXMLBase):
 
 
 class VMSysinfoXML(base.LibvirtXMLBase):
-
     """
     Class to access <sysinfo> tag of domain XML
 
@@ -4944,3 +4937,36 @@ class VMOSACPIXML(base.LibvirtXMLBase):
         accessors.XMLElementText("table", self, parent_xpath="/", tag_name="table")
         super(VMOSACPIXML, self).__init__(virsh_instance=virsh_instance)
         self.xml = "<acpi/>"
+
+
+class VMFeaturestlbflushXML(base.LibvirtXMLBase):
+    """
+    tlbflush tag XML class of features tag
+    """
+
+    __slots__ = ("state", "extended", "direct")
+
+    def __init__(self, virsh_instance=base.virsh):
+        accessors.XMLAttribute(
+            property_name="state",
+            libvirtxml=self,
+            parent_xpath="/",
+            tag_name="tlbflush",
+            attribute="state",
+        )
+        accessors.XMLElementDict(
+            property_name="extended",
+            libvirtxml=self,
+            forbidden=None,
+            parent_xpath="/",
+            tag_name="extended",
+        )
+        accessors.XMLElementDict(
+            property_name="direct",
+            libvirtxml=self,
+            forbidden=None,
+            parent_xpath="/",
+            tag_name="direct",
+        )
+        super(VMFeaturestlbflushXML, self).__init__(virsh_instance=virsh_instance)
+        self.xml = "<tlbflush/>"

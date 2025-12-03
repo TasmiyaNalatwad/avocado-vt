@@ -14,6 +14,8 @@ lmr
 params
 qemu
 redhat
+sclpcpi
+sclp
 stderr
 stdout
 tcpdump
@@ -92,7 +94,6 @@ guestfish
 rbd
 attrs
 os
-vms
 filesystems
 NFS
 qtree
@@ -126,6 +127,8 @@ io
 pcie
 protocl
 systemd
+Sysplex
+sysplex
 cfg
 dst
 Init
@@ -140,7 +143,6 @@ dstmacaddr
 hugepage
 json
 tmp
-VMs
 Augeas
 KVM
 proc
@@ -185,12 +187,16 @@ aug
 chardev
 domcapabilities
 hmat
+hw
+HW
 num
 polkit
 pos
 xpath
 xpaths
 cpus
+cpi
+CPI
 fsfreeze
 OVS
 PID
@@ -387,6 +393,7 @@ btn
 cgroups
 datetime
 Delter
+delvm
 DES
 desc
 df
@@ -445,7 +452,6 @@ asc
 Autostart
 blk
 callables
-cgroups
 cid
 cls
 cn
@@ -478,6 +484,7 @@ ldoktor
 logfile
 Lukas
 LVs
+managedsave
 Macvtap
 MBR
 modprobe
@@ -493,6 +500,7 @@ pdb
 pki
 postprocessing
 powerdown
+pstore
 pty
 pvs
 py
@@ -514,7 +522,6 @@ userspace
 vdb
 verison
 vfs
-VFs
 vgname
 vmlinuz
 vnc
@@ -525,6 +532,8 @@ xxxx
 yyy
 augpath
 backstore
+Backstore
+backstores
 backtrace
 baz
 bbb
@@ -539,7 +548,6 @@ chipds
 chpids
 clocksource
 cmdresult
-cmds
 cpuid
 cpulist
 ctrl
@@ -646,7 +654,6 @@ unittests
 unpickling
 Unregister
 usbdev
-vcpus
 vddk
 vfd
 vhbas
@@ -780,6 +787,18 @@ LENOVO
 idmap
 gid
 tc
+mgmtdev
+dat
+ps
+vdc
+gcc
+iommufd
+passt
+Passt
+urllib
+sndbuf
+crashkernel
+LWP
 
 # The list below needs a second review
 abc
@@ -836,6 +855,7 @@ baremetal
 baseclasses
 basecmds
 basedir
+basefile
 baselabel
 baseurl
 basicConfig
@@ -889,7 +909,6 @@ cellno
 cephfs
 cfq
 cgcreate
-cgroups
 cgset
 chcon
 checkbutton
@@ -903,7 +922,6 @@ clksrc
 CmdError
 cmdlines
 Cmdobject
-cmds
 CML
 codec
 codeset
@@ -930,7 +948,6 @@ cp
 cpuflags
 cpuinfo
 Cpuinfo
-cpus
 cpustats
 cputime
 crb
@@ -981,7 +998,6 @@ descendents
 Destructor
 DevContainer
 devel
-devid
 devmajor
 devminor
 devname
@@ -990,7 +1006,6 @@ dfile
 dgram
 dic
 dics
-dicts
 dids
 Dimitrov
 directsync
@@ -1158,6 +1173,7 @@ guestmount
 gz
 handlings
 hardcode
+hardcoded
 Hardcode
 harddrives
 Hariharan
@@ -1247,9 +1263,9 @@ iothreadscheds
 iotune
 ips
 IPs
-IPs
 iptable
 IQN
+iqn
 isapc
 iscsiadm
 iscsid
@@ -1441,8 +1457,6 @@ newname
 newvm
 newvolgroup
 nfspath
-nics
-NICs
 NMI
 nodedevice
 nodefconfig
@@ -1517,8 +1531,6 @@ persistdest
 pesistent
 pflash
 pfs
-pfs
-PFs
 pgrep
 pgroup
 physvols
@@ -1603,7 +1615,6 @@ qed
 qemuarg
 qemudir
 qemudirarg
-qemus
 qemus
 qeury
 QFloppy
@@ -1721,9 +1732,10 @@ scsis
 sctps
 sdaa
 sdc
+sdd
+sde
 SDK
 SDL
-seclabels
 seclables
 sectionless
 sectorsize
@@ -1976,7 +1988,6 @@ vbox
 VBox
 vcpucoutn
 vcpupins
-vcpus
 vcpusched
 vcpuscheds
 vcputime
@@ -1990,7 +2001,6 @@ versionable
 versioned
 versioning
 vdpa
-VFs
 vfstype
 vga
 vgcreate
@@ -2009,13 +2019,10 @@ vio
 viostor
 vlanid
 vlans
-vlans
 vmcoreinfo
 vmdk
 vmname
 VMname
-vms
-VMs
 vmstat
 vmtype
 vmware
@@ -2083,5 +2090,47 @@ zfgrepi
 zfile
 zgrep
 zgrepi
+zlib
+zstd
 Zuo
 zzz
+sizeunit
+refcnt
+mnonce
+getfd
+multipeerroundrobin
+groupname
+nodexx
+vq
+ioport
+yy
+KVER
+maxMemory
+valuenn
+fcntl
+tapname
+hgps
+slic
+tlbflush
+openfiles
+memoryBacking
+nosp
+zpci
+Devcontainer
+subuid
+subgid
+uids
+gids
+nexthops
+mov
+eax
+ebx
+ecx
+edx
+edi
+rsi
+ret
+SME
+Yihuang
+Yu
+yihyu

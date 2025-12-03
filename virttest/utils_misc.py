@@ -91,7 +91,6 @@ ARCH = platform.machine()
 
 
 class InterruptedThread(threading.Thread):
-
     """
     Run a function in a background thread.
     """
@@ -1481,7 +1480,6 @@ def is_symlink(link_name, session=None):
 
 
 class NumaInfo(object):
-
     """
     Numa topology for host. Also provide the function for check the memory status
     of the node.
@@ -1673,7 +1671,6 @@ class NumaInfo(object):
 
 
 class NumaNode(object):
-
     """
     Numa node to control processes and shared memory.
     """
@@ -2123,7 +2120,6 @@ class ForAll(list):
 
 
 class ForAllP(list):
-
     """
     Parallel version of ForAll
     """
@@ -2143,7 +2139,6 @@ class ForAllP(list):
 
 
 class ForAllPSE(list):
-
     """
     Parallel version of and suppress exception.
     """
@@ -2775,7 +2770,10 @@ def get_linux_drive_path(session, did, timeout=120):
     if status != 0:
         LOG.error("Can not get drive information:\n%s" % output)
         return ""
-    p = r"DEVNAME=([^\s]+)\s.*(?:ID_SERIAL|ID_SERIAL_SHORT|ID_WWN)=%s" % did
+    p = (
+        r"DEVNAME=([^\s]+)\s.*(?:ID_SERIAL|ID_SERIAL_SHORT|ID_SCSI_SERIAL|ID_WWN)=%s"
+        % did
+    )
     dev = re.search(p, output, re.M)
     if dev:
         return dev.groups()[0]
@@ -2848,7 +2846,7 @@ def get_image_snapshot(image_file):
         snap_info = process.run(cmd, ignore_status=False).stdout_text.strip()
         snap_list = []
         if snap_info:
-            pattern = "(\d+) +\d+ +.*"
+            pattern = "(\d+) +[0-9a-zA-Z]+ +.*"
             for line in snap_info.splitlines():
                 snap_list.extend(re.findall(r"%s" % pattern, line))
         return snap_list
@@ -2866,7 +2864,7 @@ def check_qemu_image_lock_support():
     cmd = "qemu-img"
     binary_path = utils_path.find_command(cmd)
     cmd_result = process.run(
-        binary_path + " -h", ignore_status=True, shell=True, verbose=False
+        binary_path + " info -h", ignore_status=True, shell=True, verbose=False
     )
     return b"-U" in cmd_result.stdout
 
@@ -2949,6 +2947,9 @@ def get_image_info(image_file):
                 elif line.find("extended l2") != -1:
                     extended_l2 = line.split(":")[-1].strip()
                     image_info_dict["extended l2"] = extended_l2
+                elif line.find("data file:") != -1:
+                    data_file = line.split(":")[-1].strip()
+                    image_info_dict["data file"] = data_file
         return image_info_dict
     except (KeyError, IndexError, process.CmdError) as detail:
         raise exceptions.TestError(
@@ -3006,7 +3007,6 @@ def get_test_entrypoint_func(name, module):
 
 
 class KSMError(Exception):
-
     """
     Base exception for KSM setup
     """
@@ -3015,7 +3015,6 @@ class KSMError(Exception):
 
 
 class KSMNotSupportedError(KSMError):
-
     """
     Thrown when host does not support KSM.
     """
@@ -3024,7 +3023,6 @@ class KSMNotSupportedError(KSMError):
 
 
 class KSMTunedError(KSMError):
-
     """
     Thrown when KSMTuned Error happen.
     """
@@ -3033,7 +3031,6 @@ class KSMTunedError(KSMError):
 
 
 class KSMTunedNotSupportedError(KSMTunedError):
-
     """
     Thrown when host does not support KSMTune.
     """
@@ -3042,7 +3039,6 @@ class KSMTunedNotSupportedError(KSMTunedError):
 
 
 class KSMController(object):
-
     """KSM Manager"""
 
     def __init__(self):
@@ -3661,7 +3657,6 @@ class VFIOError(Exception):
 
 
 class VFIOController(object):
-
     """Control Virtual Function for testing"""
 
     def __init__(self, load_modules=True, allow_unsafe_interrupts=True):
@@ -3772,7 +3767,6 @@ class VFIOController(object):
 
 
 class SELinuxBoolean(object):
-
     """
     SELinuxBoolean class for managing SELinux boolean value.
     """
@@ -4470,6 +4464,111 @@ def get_distro(session=None):
                 distro_name = output.split("=")[1].strip()
         finally:
             return distro_name
+
+
+def get_guest_distro_info(vm, serial=False):
+    """
+    Get comprehensive distribution information from guest VM
+
+    :param vm: libvirt_vm.VM instance to get info from
+    :param serial: If True, use serial login instead of regular login
+    :return: Dictionary with guest distribution information
+    """
+
+    guest_distro_info = {}
+    session = None
+
+    try:
+        if serial:
+            session = vm.wait_for_serial_login()
+        else:
+            session = vm.wait_for_login()
+
+        distro_id = get_distro(session)
+        if distro_id:
+            guest_distro_info["id"] = distro_id
+
+        # Get OS release information
+        status, output = cmd_status_output("cat /etc/os-release", session=session)
+        if status != 0:
+            raise RuntimeError(f"Failed to read /etc/os-release: exit code {status}")
+
+        guest_distro_info.update(_parse_os_release(output))
+
+        # Get kernel version
+        status, output = cmd_status_output("uname -r", session=session)
+        if status != 0:
+            raise RuntimeError(f"Failed to get kernel version: exit code {status}")
+
+        guest_distro_info["kernel_version"] = output.strip()
+        guest_distro_info["kernel_parts"] = _parse_kernel_version(output.strip())
+
+        return guest_distro_info
+
+    except Exception as e:
+        raise RuntimeError(f"Failed to get guest distro info: {e}")
+    finally:
+        if session:
+            session.close()
+
+
+def _parse_os_release(os_release_output):
+    """Parse /etc/os-release content"""
+    info = {}
+    for line in os_release_output.split("\n"):
+        if "=" in line:
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip('"')
+            info[key.lower()] = value
+
+    result = {}
+    if "id" in info:
+        result["id"] = info["id"]
+    if "name" in info:
+        result["name"] = info["name"]
+    if "version" in info:
+        result["version"] = info["version"]
+    if "version_id" in info:
+        result["version_id"] = info["version_id"]
+
+    if "version_id" in info:
+        version_parts = info["version_id"].split(".")
+        result["version_parts"] = {
+            "major": version_parts[0] if len(version_parts) > 0 else "0",
+            "minor": version_parts[1] if len(version_parts) > 1 else "0",
+            "build_number": version_parts[2] if len(version_parts) > 2 else "0",
+        }
+
+    return result
+
+
+def _parse_kernel_version(kernel_version):
+    """Parse kernel version into major.minor.stable-patch_level format"""
+
+    try:
+        # Try to match full kernel version like "6.12.0-136.el10.s390x"
+        full_match = re.match(r"(\d+)\.(\d+)\.(\d+)-(\d+)", kernel_version)
+        if full_match:
+            return {
+                "major": int(full_match.group(1)),
+                "minor": int(full_match.group(2)),
+                "stable": int(full_match.group(3)),
+                "patch_level": int(full_match.group(4)),
+            }
+
+        # Fallback to basic version like "6.12.0"
+        basic_match = re.match(r"(\d+)\.(\d+)\.(\d+)", kernel_version)
+        if basic_match:
+            return {
+                "major": int(basic_match.group(1)),
+                "minor": int(basic_match.group(2)),
+                "stable": int(basic_match.group(3)),
+                "patch_level": 0,  # Default patch level if not found
+            }
+    except:
+        pass
+    return {"major": 0, "minor": 0, "stable": 0, "patch_level": 0}
 
 
 def get_sosreport(

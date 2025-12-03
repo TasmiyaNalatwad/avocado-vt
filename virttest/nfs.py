@@ -2,6 +2,7 @@
 Basic nfs support for Linux host. It can support the remote
 nfs mount and the local nfs set up and mount.
 """
+
 import logging
 import re
 
@@ -50,7 +51,6 @@ def nfs_exported(session=None):
 
 
 class Exportfs(object):
-
     """
     Add or remove one entry to exported nfs file system.
     """
@@ -150,7 +150,6 @@ class Exportfs(object):
 
 
 class Nfs(object):
-
     """
     Nfs class for handle nfs mount and umount. If a local nfs service is
     required, it will configure a local nfs server according the params.
@@ -196,7 +195,7 @@ class Nfs(object):
             params.get("setup_remote_nfs") == "yes"
             or params.get("setup_local_nfs") == "yes"
         ):
-            if "Ubuntu" in distro_details or "rhel" in distro_details:
+            if distro_details.upper() in ("UBUNTU", "RHEL", "FEDORA"):
                 self.nfs_service = service.Service("nfs-server", session=self.session)
             else:
                 self.nfs_service = service.Service("nfs", session=self.session)
@@ -231,7 +230,7 @@ class Nfs(object):
         """
         Umount the given mount point.
         """
-        return utils_misc.umount(self.mount_src, self.mount_dir, "nfs")
+        return utils_misc.umount(self.mount_src, self.mount_dir, "nfs,nfs4")
 
     def setup(self):
         """
@@ -288,7 +287,6 @@ class Nfs(object):
 
 
 class NFSClient(object):
-
     """
     NFSClient class for handle nfs remotely mount and umount.
     """

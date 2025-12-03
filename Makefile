@@ -46,13 +46,16 @@ requirements: pip
 	- $(PYTHON) -m pip install -r requirements.txt
 
 check:
-	./selftests/style.sh
-	./selftests/isort.sh
+	./avocado-static-checks/check-style
+	./avocado-static-checks/check-import-order
 	inspekt lint --disable W,R,C,E0203,E0601,E1002,E1101,E1102,E1103,E1120,F0401,I0011,E1003,W605,I1101 --exclude avocado-libs,scripts/github
-	pylint --errors-only --disable=all --enable=spelling --spelling-dict=en_US --spelling-private-dict-file=spell.ignore *
+	pylint --disable=all --enable=spelling --spelling-dict=en_US --spelling-private-dict-file=spell.ignore *
 
 clean:
-	$(PYTHON) setup.py clean
+	rm -rf MANIFEST BUILD BUILDROOT SPECS RPMS SRPMS SOURCES PYPI_UPLOAD build dist
+	for pattern in "*.pyc" "__pycache__" "*.egg-info"; do \
+		find . -name "$$pattern" -exec rm -rf {} +; \
+	done
 
 develop:
 	$(PYTHON) setup.py develop $(PYTHON_DEVELOP_ARGS)

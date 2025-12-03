@@ -7,6 +7,7 @@ Naive module that keeps tacks of some opened files and somehow manages them.
 
 :copyright: 2020 Red Hat Inc.
 """
+
 import logging
 import os
 import re
@@ -29,7 +30,7 @@ _log_lock = threading.RLock()
 _open_log_files = {}  # pylint: disable=C0103
 
 
-def _acquire_lock(lock, timeout=10):
+def _acquire_lock(lock, timeout=30):
     """
     Check if the lock is available
 
@@ -181,3 +182,36 @@ def close_own_log_file(log_file):
         close_log_file(log_file)
 
     return hook
+
+
+def clear_log_file(log_file_name, log_dir=None):
+    """
+    Clears the (e.g. VM) log file before a test run.
+    Closes the file if in open files.
+
+    :param log_file_name: name of file to be cleared.
+    :param log_dir: directory with logfile; default is the _log_file_dir
+    :raise LogLockError: If the lock is unavailable.
+    """
+
+    global _open_log_files, _log_file_dir, _log_lock
+
+    if log_file_name in _open_log_files:
+        close_log_file(log_file_name)  # close_log_file will acquire lock for closure
+
+    if not _acquire_lock(_log_lock):
+        raise LogLockError(
+            "Could not acquire exclusive lock to access" " _open_log_files"
+        )
+
+    try:
+        if log_dir:
+            log_file = os.path.join(log_dir, log_file_name)
+        else:
+            log_file = os.path.join(_log_file_dir, log_file_name)
+
+        if os.path.exists(log_file):
+            # Clear the log file
+            open(log_file, "w").close()
+    finally:
+        _log_lock.release()

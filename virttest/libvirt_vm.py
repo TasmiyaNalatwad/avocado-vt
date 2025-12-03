@@ -169,7 +169,6 @@ class Monitor(object):
 
 
 class VM(virt_vm.BaseVM):
-
     """
     This class handles all basic VM operations for libvirt.
     """
@@ -3236,6 +3235,7 @@ class VM(virt_vm.BaseVM):
         target_name="org.qemu.guest_agent.0",
         with_pm_utils=False,
         serial=False,
+        remove_existing=False,
     ):
         """
         Prepare qemu guest agent on the VM.
@@ -3248,6 +3248,8 @@ class VM(virt_vm.BaseVM):
         :param target_name: Target name of the guest agent channel
         :param with_pm_utils: Determines if to install pm-utils
         :param serial: Whether to use a serial connection
+        :param remove_existing: Bool, True to remove before install,
+                                      Otherwise False
         """
         virsh_inst = virsh.VirshPersistent(uri=self.connect_uri)
         if prepare_xml:
@@ -3280,6 +3282,8 @@ class VM(virt_vm.BaseVM):
         if not self.is_alive():
             self.start()
 
+        if remove_existing:
+            self.remove_package("qemu-guest-agent", serial=serial)
         if with_pm_utils:
             self.install_package("pm-utils", ignore_status=True, timeout=15)
         self.install_package("qemu-guest-agent", serial=serial)

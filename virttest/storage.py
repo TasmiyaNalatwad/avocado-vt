@@ -5,6 +5,7 @@ This exports:
   - two functions for get image/blkdebug filename
   - class for image operates and basic parameters
 """
+
 from __future__ import division
 
 import collections
@@ -34,6 +35,7 @@ from virttest import (
     utils_numeric,
     utils_params,
     vdpa_blk,
+    vhost_user_blk,
     virt_vm,
 )
 
@@ -201,6 +203,8 @@ def get_image_filename(params, root_dir, basename=False):
         image_format = params.get("image_format", "qcow2")
         if storage_type == "vhost-vdpa":
             return vdpa_blk.get_image_filename(image_name)
+        if storage_type == "vhost-user-blk":
+            return vhost_user_blk.get_image_filename(params)
         if enable_curl:
             # required libcurl params
             curl_protocol = params["curl_protocol"]
@@ -804,7 +808,6 @@ class ImageEncryption(object):
 
 
 class ImageSlicesInfo:
-
     """Slices information associated with images."""
 
     def __init__(self, image, slices):
@@ -840,7 +843,6 @@ class ImageSlicesInfo:
 
 
 class SliceProperties(propcan.PropCan):
-
     """Properties of a single slice associated with images."""
 
     __slots__ = ["offset", "size"]
@@ -881,7 +883,6 @@ def copy_nfs_image(params, root_dir, basename=False):
 
 
 class OptionMissing(Exception):
-
     """
     Option not found in the odbject
     """
@@ -894,7 +895,6 @@ class OptionMissing(Exception):
 
 
 class QemuImg(object):
-
     """
     A basic class for handling operations of disk/block images.
     """
@@ -973,6 +973,7 @@ class QemuImg(object):
                 "image_format": "raw",
                 "image_size": image_size,
                 "image_raw_device": "yes",
+                "backup_dir": params.get("backup_dir", ""),
             }
         )
         return cls(data_file_params, root_dir, "%s_data_file" % tag)
@@ -1259,7 +1260,6 @@ class QemuImg(object):
 
 
 class Rawdev(object):
-
     """
     Base class for raw storage devices such as iscsi and local disks
     """
@@ -1283,7 +1283,6 @@ class Rawdev(object):
 
 
 class Iscsidev(Rawdev):
-
     """
     Class for handle iscsi devices for VM
     """
@@ -1310,7 +1309,6 @@ class Iscsidev(Rawdev):
 
 
 class LVMdev(Rawdev):
-
     """
     Class for handle LVM devices for VM
     """

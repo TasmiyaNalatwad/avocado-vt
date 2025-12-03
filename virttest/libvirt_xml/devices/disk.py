@@ -10,7 +10,6 @@ from virttest.libvirt_xml.devices.seclabel import Seclabel
 
 
 class Disk(base.TypedDeviceBase):
-
     """
     Disk device XML class
 
@@ -352,7 +351,6 @@ class Disk(base.TypedDeviceBase):
     Address = librarian.get("address")
 
     class DiskSource(base.base.LibvirtXMLBase):
-
         """
         Disk source device XML class
 
@@ -374,6 +372,13 @@ class Disk(base.TypedDeviceBase):
             "config_file",
             "snapshot_name",
             "address",
+            "dataStore",
+            "knownhosts",
+            "identity",
+            "ssl",
+            "cookies",
+            "readahead",
+            "timeout",
         )
 
         def __init__(self, virsh_instance=base.base.virsh):
@@ -442,6 +447,57 @@ class Disk(base.TypedDeviceBase):
             accessors.XMLElementDict(
                 "address", self, parent_xpath="/", tag_name="address"
             )
+            accessors.XMLElementNest(
+                "dataStore",
+                self,
+                parent_xpath="/",
+                tag_name="dataStore",
+                subclass=Disk.dataStore,
+                subclass_dargs={"virsh_instance": virsh_instance},
+            )
+            accessors.XMLAttribute(
+                "knownhosts",
+                self,
+                parent_xpath="/",
+                tag_name="knownHosts",
+                attribute="path",
+            )
+            accessors.XMLElementList(
+                "identity",
+                self,
+                parent_xpath="/",
+                marshal_from=self.marshal_from_identity,
+                marshal_to=self.marshal_to_identity,
+            )
+            accessors.XMLAttribute(
+                "ssl",
+                self,
+                parent_xpath="/",
+                tag_name="ssl",
+                attribute="verify",
+            )
+            accessors.XMLAttribute(
+                "readahead",
+                self,
+                parent_xpath="/",
+                tag_name="readahead",
+                attribute="size",
+            )
+            accessors.XMLAttribute(
+                "timeout",
+                self,
+                parent_xpath="/",
+                tag_name="timeout",
+                attribute="seconds",
+            )
+            accessors.XMLElementNest(
+                "cookies",
+                self,
+                parent_xpath="/",
+                tag_name="cookies",
+                subclass=Disk.Cookies,
+                subclass_dargs={"virsh_instance": virsh_instance},
+            )
             super(self.__class__, self).__init__(virsh_instance=virsh_instance)
             self.xml = "<source/>"
 
@@ -489,8 +545,27 @@ class Disk(base.TypedDeviceBase):
                 return None  # skip this one
             return dict(attr_dict)  # return copy of dict, not reference
 
-    class DiskDriverIOthreadsXML(base.base.LibvirtXMLBase):
+        @staticmethod
+        def marshal_from_identity(item, index, libvirtxml):
+            """Convert a dictionary into a tag + attributes"""
+            del index  # not used
+            del libvirtxml  # not used
+            if not isinstance(item, dict):
+                raise xcepts.LibvirtXMLError(
+                    "Expected a dictionary of identity attributes, not a %s" % str(item)
+                )
+            return ("identity", dict(item))  # return copy of dict, not reference
 
+        @staticmethod
+        def marshal_to_identity(tag, attr_dict, index, libvirtxml):
+            """Convert a tag + attributes into a dictionary"""
+            del index  # not used
+            del libvirtxml  # not used
+            if tag != "identity":
+                return None  # skip this one
+            return dict(attr_dict)  # return copy of dict, not reference
+
+    class DiskDriverIOthreadsXML(base.base.LibvirtXMLBase):
         """
         iothreads tag XML class
 
@@ -598,7 +673,6 @@ class Disk(base.TypedDeviceBase):
                 return dict(attr_dict)
 
     class IOTune(base.base.LibvirtXMLBase):
-
         """
         IOTune device XML class
 
@@ -632,7 +706,6 @@ class Disk(base.TypedDeviceBase):
             self.xml = "<iotune/>"
 
     class Encryption(base.base.LibvirtXMLBase):
-
         """
         Encryption device XML class
 
@@ -664,7 +737,6 @@ class Disk(base.TypedDeviceBase):
             self.xml = "<encryption/>"
 
     class Auth(base.base.LibvirtXMLBase):
-
         """
         Auth device XML class
 
@@ -715,7 +787,6 @@ class Disk(base.TypedDeviceBase):
             self.xml = "<auth/>"
 
     class Slices(base.base.LibvirtXMLBase):
-
         """
         slices device XML class
         Typical xml looks like:
@@ -752,7 +823,6 @@ class Disk(base.TypedDeviceBase):
             self.xml = "<slices/>"
 
     class Reservations(base.base.LibvirtXMLBase):
-
         """
         Reservations device XML class
 
@@ -885,9 +955,20 @@ class Disk(base.TypedDeviceBase):
                 dict, nested xml of backingStore/source tag
             file:
                 string, attribute of backingStore/source tag
+            datastore:
+                dict, nested xml of backingStore/source/dataStore tag
             """
 
-            __slots__ = ("attrs", "dev", "protocol", "name", "host", "file", "auth")
+            __slots__ = (
+                "attrs",
+                "dev",
+                "protocol",
+                "name",
+                "host",
+                "file",
+                "auth",
+                "datastore",
+            )
 
             def __init__(self, virsh_instance=base.base.virsh):
                 accessors.XMLElementDict(
@@ -918,6 +999,14 @@ class Disk(base.TypedDeviceBase):
                     parent_xpath="/",
                     tag_name="auth",
                     subclass=Disk.Auth,
+                    subclass_dargs={"virsh_instance": virsh_instance},
+                )
+                accessors.XMLElementNest(
+                    "datastore",
+                    self,
+                    parent_xpath="/",
+                    tag_name="dataStore",
+                    subclass=Disk.dataStore,
                     subclass_dargs={"virsh_instance": virsh_instance},
                 )
 
@@ -952,3 +1041,124 @@ class Disk(base.TypedDeviceBase):
             )
             super(self.__class__, self).__init__(virsh_instance=virsh_instance)
             self.xml = "<metadata_cache/>"
+
+    class dataStore(base.base.LibvirtXMLBase):
+        """
+        DataStore device XML class
+
+        type:
+            string, attribute of dataStore tag
+        index:
+            string, attribute of dataStore tag
+        format:
+            dict, key-attribute of dataStore tag
+        source:
+            nested xml of dataStore tag
+        """
+
+        __slots__ = ("type", "index", "format", "source")
+
+        def __init__(self, virsh_instance=base.base.virsh):
+            accessors.XMLAttribute(
+                "type",
+                self,
+                parent_xpath="/",
+                tag_name="dataStore",
+                attribute="type",
+            )
+            accessors.XMLAttribute(
+                "index",
+                self,
+                parent_xpath="/",
+                tag_name="dataStore",
+                attribute="index",
+            )
+            accessors.XMLElementDict(
+                "format", self, parent_xpath="/", tag_name="format"
+            )
+            accessors.XMLElementNest(
+                "source",
+                self,
+                parent_xpath="/",
+                tag_name="source",
+                subclass=self.Source,
+                subclass_dargs={"virsh_instance": virsh_instance},
+            )
+            super(self.__class__, self).__init__(virsh_instance=virsh_instance)
+            self.xml = "<dataStore/>"
+
+        class Source(base.base.LibvirtXMLBase):
+            """
+            Source of datastore xml class
+
+            dev:
+                string, attribute of dataStore/source tag
+            protocal:
+                string, attribute of dataStore/source tag
+            name:
+                string, attribute of dataStore/source tag
+            host:
+                dict, nested xml of dataStore/source tag
+            file:
+                string, attribute of dataStore/source tag
+            """
+
+            __slots__ = ("attrs", "protocol", "name", "host", "auth")
+
+            def __init__(self, virsh_instance=base.base.virsh):
+                accessors.XMLElementDict(
+                    "attrs", self, parent_xpath="/", tag_name="source"
+                )
+                accessors.XMLAttribute(
+                    "protocol",
+                    self,
+                    parent_xpath="/",
+                    tag_name="source",
+                    attribute="protocol",
+                )
+                accessors.XMLAttribute(
+                    "name", self, parent_xpath="/", tag_name="source", attribute="name"
+                )
+                accessors.XMLElementDict(
+                    "host", self, parent_xpath="/", tag_name="host"
+                )
+                accessors.XMLElementNest(
+                    "auth",
+                    self,
+                    parent_xpath="/",
+                    tag_name="auth",
+                    subclass=Disk.Auth,
+                    subclass_dargs={"virsh_instance": virsh_instance},
+                )
+
+                super(self.__class__, self).__init__(virsh_instance=virsh_instance)
+                self.xml = "<source/>"
+
+    class Cookies(base.base.LibvirtXMLBase):
+        """
+        Source of Cookies xml class
+
+        cookie_name:
+            string, attribute of Cookies name
+        cookie:
+            string, attribute of Cookies value
+        """
+
+        __slots__ = ("cookie_name", "cookie")
+
+        def __init__(self, virsh_instance=base.base.virsh):
+            accessors.XMLElementText(
+                property_name="cookie",
+                libvirtxml=self,
+                parent_xpath="/",
+                tag_name="cookie",
+            )
+            accessors.XMLAttribute(
+                property_name="cookie_name",
+                libvirtxml=self,
+                parent_xpath="/",
+                tag_name="cookie",
+                attribute="name",
+            )
+            super(self.__class__, self).__init__(virsh_instance=virsh_instance)
+            self.xml = "<cookies/>"

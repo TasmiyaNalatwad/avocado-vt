@@ -251,6 +251,109 @@ def update_boot_option(
             session.close()
 
 
+def update_vm_default_kernel(
+    vm,
+    kernel_version,
+    reboot,
+    guest_arch_name,
+    timeout="",
+    serial_login=False,
+):
+    """
+    Update guest default kernel.
+
+    :param vm: The VM object.
+    :param kernel_version: The full kernel version that should be set as the new default.
+                           Can use the entire kernel path or just the full kernel name.
+                           get_available_kernel_paths(session, pattern) is a useful helper function.
+    :param reboot: Whether to reboot the VM and update the kernel used or not.
+    :param guest_arch_name: Guest architecture, e.g. x86_64, s390x, aarch64.
+    :param timeout: Timeout for login and reboot.
+    :param serial_login: Login guest via serial session.
+    :raise NotImplementedError: Raised if Windows guest, not Linux.
+    :raise exceptions.TestError: Raised if failed to update the guest kernel.
+    """
+    if vm.params.get("os_type") == "windows":
+        raise NotImplementedError(
+            "update_vm_default_kernel() is supported only for Linux guest"
+        )
+
+    timeout = int(timeout) if timeout else int(vm.params.get("login_timeout"))
+    session = vm.wait_for_login(
+        timeout=timeout, serial=serial_login, restart_network=True
+    )
+    try:
+        if not utils_package.package_install("grubby", session=session):
+            raise exceptions.TestError("Failed to install grubby package")
+
+        cmd = "grubby --default-kernel"
+        status, output = session.cmd_status_output(cmd)
+        if status != 0:
+            LOG.error(output)
+        else:
+            if kernel_version in output:
+                LOG.info(
+                    "%s is already the default kernel version (%s)"
+                    % (kernel_version, output)
+                )
+                return
+
+        msg = "Set default guest kernel"
+        cmd = 'grubby --set-default="%s"' % kernel_version
+        __run_cmd_and_handle_error(
+            msg, cmd, session, "Failed to set default guest kernel"
+        )
+
+        if guest_arch_name == "s390x":
+            msg = "Update boot media with zipl"
+            cmd = "zipl"
+            __run_cmd_and_handle_error(
+                msg, cmd, session, "Failed to update boot media with zipl"
+            )
+
+        if reboot:
+            LOG.info("Rebooting guest ...")
+            session = vm.reboot(session=session, timeout=timeout, serial=serial_login)
+
+    finally:
+        if session:
+            session.close()
+
+
+def get_available_kernel_paths(session, pattern):
+    """
+    Get the full kernel paths given an identifying pattern
+
+    :params session: the vm session
+    :params pattern: regex pattern to identify specific kernel
+    :returns: list of kernel paths
+    :raises exceptions.TestError: raised if no matching kernels could be found
+    """
+    try:
+        if not utils_package.package_install("grubby", session=session):
+            raise exceptions.TestError("Failed to install grubby package")
+        cmd = "grubby --info=ALL"
+        lines = session.cmd_output(cmd).splitlines()
+
+        kernel_paths = []
+        for line in lines:
+            if line.startswith("kernel=") and re.match(pattern, line):
+                kernel = line.split("=")[1].strip('"')
+                kernel_paths.append(kernel)
+        LOG.info("kernel path(s) found: %s" % kernel_paths)
+
+        if not kernel_paths:
+            LOG.debug("Full %s output: %s" % (cmd, lines))
+            raise exceptions.TestError(
+                "No kernels with %s pattern could be found" % pattern
+            )
+        return kernel_paths
+    except:
+        raise exceptions.TestError(
+            "No kernels with %s pattern could be found" % pattern
+        )
+
+
 def stop_windows_service(session, service, timeout=120):
     """
     Stop a Windows service using sc.
@@ -1034,7 +1137,7 @@ class AvocadoGuest(object):
             if self.session.cmd_status(cmd, timeout=self.timeout) != 0:
                 LOG.error("Failed to restart libvirtd inside guest")
                 return False
-            pip_pack = ["setuptools", "netifaces", "aexpect"]
+            pip_pack = ["setuptools", "aexpect"]
             cmd = ""
             for each in pip_pack:
                 cmd = "%s install %s --upgrade" % (self.pip_bin, each)
@@ -2451,20 +2554,24 @@ class Stress(object):
                 raise exceptions.TestError(
                     "Installing dependency packages for" " %s failed" % self.stress_type
                 )
-        if self.stress_install_from_repo and self.stress_package:
-            # Install the stress package from existing repos
-            # If succeed, no need to download stress src any more
-            if not utils_package.package_install(
-                self.stress_package, session=self.session, timeout=60
-            ):
-                self.stress_install_from_repo = False
-                LOG.debug(
-                    "Fail to install stress tool via repo and "
-                    "will download source to make and install it"
-                )
-            else:
-                LOG.debug("Successful to install stress tool via repo")
+        if self.stress_package:
+            mgr = utils_package.package_manager(self.session, self.stress_package)
+            if mgr.is_installed(self.stress_package):
                 return
+            elif self.stress_install_from_repo:
+                # Install the stress package from existing repos
+                # If succeed, no need to download stress src any more
+                if not utils_package.package_install(
+                    self.stress_package, session=self.session, timeout=60
+                ):
+                    self.stress_install_from_repo = False
+                    LOG.debug(
+                        "Fail to install stress tool via repo and "
+                        "will download source to make and install it"
+                    )
+                else:
+                    LOG.debug("Successful to install stress tool via repo")
+                    return
 
         self.download_stress()
         install_path = os.path.join(self.dst_path, self.base_name, self.work_path)
@@ -2481,22 +2588,28 @@ class Stress(object):
         """
         Uninstall stress application, and clean the source files
         """
-        if self.stress_install_from_repo and self.stress_package:
-            # Uninstall the stress package from existing repos
-            # If succeed, no need to uninstall and remove source any more
-            if not utils_package.package_remove(
-                self.stress_package, session=self.session
-            ):
-                LOG.debug(
-                    "Fail to remove stress tool via repo and "
-                    "will continue to uninstall and remove source"
-                )
+        if self.stress_package:
+            if self.stress_install_from_repo:
+                # Uninstall the stress package from existing repos
+                # If succeed, no need to uninstall and remove source any more
+                if not utils_package.package_remove(
+                    self.stress_package, session=self.session
+                ):
+                    LOG.debug(
+                        "Fail to remove stress tool via repo and "
+                        "will continue to uninstall and remove source"
+                    )
+                else:
+                    LOG.debug("Successful to remove stress tool via repo")
+                    return
             else:
-                LOG.debug("Successful to remove stress tool via repo")
-                return
+                mgr = utils_package.package_manager(self.session, self.stress_package)
+                if mgr.is_installed(self.stress_package):
+                    return
+
         install_path = os.path.join(self.dst_path, self.base_name)
         if self.cmd_status("cd %s" % install_path) != 0:
-            LOG.error("No source files found in path %s", path)
+            LOG.error("No source files found in path %s", install_path)
             return
 
         LOG.info("Uninstall %s", self.stress_type)

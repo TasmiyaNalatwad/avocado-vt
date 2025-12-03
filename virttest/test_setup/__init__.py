@@ -1,4 +1,5 @@
 """Library to perform pre/post test setup for virt test."""
+
 from __future__ import division
 
 import ipaddress
@@ -41,7 +42,6 @@ LOG = logging.getLogger("avocado." + __name__)
 
 
 class THPError(Exception):
-
     """
     Base exception for Transparent Hugepage setup.
     """
@@ -50,7 +50,6 @@ class THPError(Exception):
 
 
 class THPNotSupportedError(THPError):
-
     """
     Thrown when host does not support transparent hugepages.
     """
@@ -59,7 +58,6 @@ class THPNotSupportedError(THPError):
 
 
 class THPWriteConfigError(THPError):
-
     """
     Thrown when host does not support transparent hugepages.
     """
@@ -68,7 +66,6 @@ class THPWriteConfigError(THPError):
 
 
 class THPKhugepagedError(THPError):
-
     """
     Thrown when khugepaged is not behaving as expected.
     """
@@ -76,8 +73,15 @@ class THPKhugepagedError(THPError):
     pass
 
 
-class PolkitConfigError(Exception):
+class HugePagesLeakError(Exception):
+    """
+    Thrown when huge pages are leaked after cleanup.
+    """
 
+    pass
+
+
+class PolkitConfigError(Exception):
     """
     Base exception for Polkit Config setup.
     """
@@ -86,7 +90,6 @@ class PolkitConfigError(Exception):
 
 
 class PolkitRulesSetupError(PolkitConfigError):
-
     """
     Thrown when setup polkit rules is not behaving as expected.
     """
@@ -95,7 +98,6 @@ class PolkitRulesSetupError(PolkitConfigError):
 
 
 class PolkitWriteLibvirtdConfigError(PolkitConfigError):
-
     """
     Thrown when setup libvirtd config file is not behaving as expected.
     """
@@ -104,7 +106,6 @@ class PolkitWriteLibvirtdConfigError(PolkitConfigError):
 
 
 class PolkitConfigCleanupError(PolkitConfigError):
-
     """
     Thrown when polkit config cleanup is not behaving as expected.
     """
@@ -198,7 +199,7 @@ class TransparentHugePageConfig(object):
             """
             Check the status of khugepaged when set value to specify file.
             """
-            for (act, ret) in action_list:
+            for act, ret in action_list:
                 LOG.info(
                     "Writing path %s: %s, expected khugepage rc: %s ",
                     file_name,
@@ -279,12 +280,13 @@ class TransparentHugePageConfig(object):
 
 
 class HugePageConfig(object):
-    def __init__(self, params):
+    def __init__(self, params, session=None):
         """
         Gets environment variable values and calculates the target number
         of huge memory pages.
 
         :param params: Dict like object containing parameters for the test.
+        :param session: ShellSession to the remote host or local vm
         """
         self.vms = len(params.objects("vms"))
         self.mem = int(params.get("mem"))
@@ -293,12 +295,20 @@ class HugePageConfig(object):
         self.deallocate = params.get("hugepages_deallocate", "yes") == "yes"
         self.hugepage_path = params.get("vm_hugepage_mountpoint", "/mnt/kvm_hugepage")
         self.kernel_hp_file = params.get("kernel_hp_file", "/proc/sys/vm/nr_hugepages")
-        if not os.path.exists(self.kernel_hp_file):
-            raise exceptions.TestSkipError(
-                "Hugepage config file is not found: " "%s" % self.kernel_hp_file
-            )
+        self.session = session
+        if self.session:
+            if self.session.cmd_status("ll %s" % self.kernel_hp_file):
+                raise exceptions.TestSkipError(
+                    "Hugepage config file on remote is not found: "
+                    "%s" % self.kernel_hp_file
+                )
+        else:
+            if not os.path.exists(self.kernel_hp_file):
+                raise exceptions.TestSkipError(
+                    "Hugepage config file is not found: " "%s" % self.kernel_hp_file
+                )
         self.over_commit_hp = "/proc/sys/vm/nr_overcommit_hugepages"
-        self.over_commit = kernel_interface.ProcFS(self.over_commit_hp)
+        self.over_commit = kernel_interface.ProcFS(self.over_commit_hp, session=session)
         self.pool_path = "/sys/kernel/mm/hugepages"
         self.sys_node_path = "/sys/devices/system/node"
         # Unit is KB as default for hugepage size.
@@ -334,8 +344,8 @@ class HugePageConfig(object):
         normalize_data_size = utils_misc.normalize_data_size
         vm_mem_minimum = params.get("vm_mem_minimum", "512M")
         self.lowest_mem_per_vm = float(normalize_data_size(vm_mem_minimum))
-        utils_memory.drop_caches()
-        self.ext_hugepages_surp = utils_memory.get_num_huge_pages_surp()
+        utils_memory.drop_caches(session=session)
+        self.ext_hugepages_surp = utils_memory.get_num_huge_pages_surp(session=session)
 
         overcommit_hugepages = int(params.get("overcommit_hugepages", 0))
         if overcommit_hugepages != self.over_commit.proc_fs_value:
@@ -524,7 +534,7 @@ class HugePageConfig(object):
             raise ValueError("The 'type' argument only accepts 'total' and 'free'")
         pgfile = "%s/hugepages-%skB/%s" % (self.pool_path, pagesize, ptype)
 
-        obj = kernel_interface.SysFS(pgfile)
+        obj = kernel_interface.SysFS(pgfile, session=self.session)
         return obj.sys_fs_value
 
     def set_kernel_hugepages(self, pagesize, pagenum, ignore_error=True):
@@ -541,7 +551,7 @@ class HugePageConfig(object):
         """
         pgfile = "%s/hugepages-%skB/nr_hugepages" % (self.pool_path, pagesize)
 
-        obj = kernel_interface.SysFS(pgfile)
+        obj = kernel_interface.SysFS(pgfile, session=self.session)
         obj.sys_fs_value = pagenum
         if obj.sys_fs_value < int(pagenum):
             error_msg = (
@@ -570,7 +580,7 @@ class HugePageConfig(object):
             ptype = "nr_hugepages"
         node_page_path = "%s/node%s" % (self.sys_node_path, node)
         node_page_path += "/hugepages/hugepages-%skB/%s" % (pagesize, ptype)
-        obj = kernel_interface.SysFS(node_page_path)
+        obj = kernel_interface.SysFS(node_page_path, session=self.session)
         return obj.sys_fs_value
 
     def set_node_num_huge_pages(self, num, node, pagesize, ignore_error=False):
@@ -586,7 +596,7 @@ class HugePageConfig(object):
         """
         node_page_path = "%s/node%s" % (self.sys_node_path, node)
         node_page_path += "/hugepages/hugepages-%skB/nr_hugepages" % pagesize
-        obj = kernel_interface.SysFS(node_page_path)
+        obj = kernel_interface.SysFS(node_page_path, session=self.session)
         obj.sys_fs_value = num
         # If node has some used hugepage, result will be larger than expected.
         if obj.sys_fs_value < int(num):
@@ -646,14 +656,33 @@ class HugePageConfig(object):
         point.
         """
         error_context.context("mounting hugepages path")
-        if not os.path.ismount(self.hugepage_path):
-            if not os.path.isdir(self.hugepage_path):
-                os.makedirs(self.hugepage_path)
-            cmd = "mount -t hugetlbfs -o pagesize=%sK " % self.hugepage_size
-            cmd += "none %s" % self.hugepage_path
-            process.system(cmd)
+        func = process.system
+        if self.session:
+            func = self.session.cmd_status
+        cmd = "mount -t hugetlbfs -o pagesize=%sK " % self.hugepage_size
+        cmd += "none %s" % self.hugepage_path
+        if not self.session:
+            if not os.path.ismount(self.hugepage_path):
+                if not os.path.isdir(self.hugepage_path):
+                    os.makedirs(self.hugepage_path)
+            else:
+                LOG.debug("'%s' is already mounted", self.hugepage_path)
+                return
+        else:
+            status = func("mount | grep %s" % self.hugepage_path)
+            if status:
+                func("mkdir -p %s" % self.hugepage_path)
+            else:
+                LOG.debug("'%s' is already mounted", self.hugepage_path)
+                return
+        func(cmd)
 
     def setup(self):
+        """
+        Setup the hugepage
+
+        :return:
+        """
         LOG.debug("Number of VMs this test will use: %d", self.vms)
         LOG.debug("Amount of memory used by each vm: %s", self.mem)
         LOG.debug("System setting for large memory page size: %s", self.hugepage_size)
@@ -667,42 +696,64 @@ class HugePageConfig(object):
             "Number of large memory pages needed for this test: %s",
             self.target_hugepages,
         )
-        # Drop caches to clean some usable memory
-        with open("/proc/sys/vm/drop_caches", "w") as caches:
-            caches.write("3")
-        # Set hugepage may fail because of insufficient continual memory
-        # Compact memory to get more continual memory
-        if (
-            linux_modules.check_kernel_config("CONFIG_COMPACTION")
-            == linux_modules.ModuleConfig.BUILTIN
-        ):
-            with open("/proc/sys/vm/compact_memory", "w") as memory:
-                memory.write("1")
-            # Check the number of available page
-            with open("/proc/buddyinfo", "r") as buddyinfo:
-                info = buddyinfo.read()
-                LOG.debug("Kernel buddyinfo:\n{}".format(info))
+        if not self.session:
+            # Drop caches to clean some usable memory
+            with open("/proc/sys/vm/drop_caches", "w") as caches:
+                caches.write("3")
+            # Set hugepage may fail because of insufficient continual memory
+            # Compact memory to get more continual memory
+            if (
+                linux_modules.check_kernel_config("CONFIG_COMPACTION")
+                == linux_modules.ModuleConfig.BUILTIN
+            ):
+                with open("/proc/sys/vm/compact_memory", "w") as memory:
+                    memory.write("1")
+                # Check the number of available page
+                with open("/proc/buddyinfo", "r") as buddyinfo:
+                    info = buddyinfo.read()
+                    LOG.debug("Kernel buddyinfo:\n{}".format(info))
+        else:
+            # Skip the optimization on remote host/local vm for now as it is not a must
+            pass
         if self.target_nodes:
             for node, num in six.iteritems(self.target_node_num):
                 self.set_node_num_huge_pages(num, node, self.hugepage_size)
         else:
-            self.set_hugepages()
+            self.set_hugepages()  # Not support remote setting yet. Will implement later
         self.mount_hugepage_fs()
 
         return self.suggest_mem
 
     @error_context.context_aware
     def cleanup(self):
+        def _ismount():
+            if self.session:
+                status = func("mount | grep %s" % self.hugepage_path)
+                return False if status else True
+            else:
+                return os.path.ismount(self.hugepage_path)
+
         if self.deallocate:
             error_context.context("trying to deallocate hugepage memory")
-            if os.path.ismount(self.hugepage_path):
+            func = process.system
+            if self.session:
+                func = self.session.cmd_status
+            if _ismount():
                 try:
-                    process.system("umount %s" % self.hugepage_path)
-                except process.CmdError:
-                    return
-            process.system("echo 0 > %s" % self.kernel_hp_file, shell=True)
+                    func("umount %s" % self.hugepage_path)
+                    LOG.info("%s is umounted", self.hugepage_path)
+                except Exception as ex:
+                    LOG.warning("Exception happens with %s", ex)
+            else:
+                LOG.info("%s is not mounted. No need to umount", self.hugepage_path)
+            if self.session:
+                func("echo 0 > %s" % self.kernel_hp_file)
+            else:
+                func("echo 0 > %s" % self.kernel_hp_file, shell=True)
             self.over_commit.proc_fs_value = 0
-            self.ext_hugepages_surp = utils_memory.get_num_huge_pages_surp()
+            self.ext_hugepages_surp = utils_memory.get_num_huge_pages_surp(
+                session=self.session
+            )
             LOG.debug("Hugepage memory successfully deallocated")
 
 
@@ -1048,7 +1099,6 @@ class PrivateOvsBridgeConfig(PrivateBridgeConfig):
 
 
 class PciAssignable(object):
-
     """
     Request PCI assignable devices on host. It will check whether to request
     PF (physical Functions) or VF (Virtual Functions).
@@ -1905,7 +1955,6 @@ class PciAssignable(object):
 
 
 class LibvirtPolkitConfig(object):
-
     """
     Enable polkit access driver for libvirtd and set polkit rules.
 
@@ -2059,6 +2108,7 @@ class LibvirtPolkitConfig(object):
         """
         Set polkit libvirt ACL rule config file
         """
+
         # polkit template string
         def _get_one_rule(action_lookup_list, lookup_oper):
             """
@@ -2199,7 +2249,6 @@ class LibvirtPolkitConfig(object):
 
 
 class EGDConfigError(Exception):
-
     """
     Raise when setup local egd.pl server failed.
     """
@@ -2208,7 +2257,6 @@ class EGDConfigError(Exception):
 
 
 class EGDConfig(object):
-
     """
     Setup egd.pl server on localhost, support startup with socket unix or tcp.
     """
@@ -2313,7 +2361,6 @@ class EGDConfig(object):
 
 
 class StraceQemu(object):
-
     """
     Attach strace to qemu VM processes, if enable_strace is 'yes'.
     It's useful to analyze qemu hang issue. But it will generate

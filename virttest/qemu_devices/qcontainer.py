@@ -67,7 +67,6 @@ LOG = logging.getLogger("avocado." + __name__)
 
 
 class DevContainer(object):
-
     """
     Device container class
     """
@@ -325,9 +324,7 @@ class DevContainer(object):
             return True
         options = "--device %s,\\?" % device
         out = self.execute_qemu(options)
-        if re.findall("iothread-vq-mapping=<[^>]+>+", out) and (
-            not device.startswith("virtio-scsi-pci")
-        ):
+        if re.findall("iothread-vq-mapping=<[^>]+>+", out):
             self.__iothread_vq_mapping_supported_devices.add(device)
             return True
         return False
@@ -379,6 +376,8 @@ class DevContainer(object):
             iothreads_return = iothreads
             if not isinstance(iothreads, Sequence):
                 iothreads = (iothreads,)
+            if isinstance(device.parent_bus, dict):
+                device.parent_bus = (device.parent_bus,)
             for iothread in iothreads:
                 dev_iothread_parent = {"busid": iothread.iothread_vq_bus.busid}
                 if device.parent_bus:
@@ -441,7 +440,7 @@ class DevContainer(object):
 
         # QMP: block-stream/block-commit @backing-mask-protocol
         # TODO: probe cap via using the qmp command `query-qmp-schema`
-        #       instead of hardcoding the version range
+        #       instead of hard-coding the version range
         if self.__qemu_ver in VersionInterval(
             self.BLOCKJOB_BACKING_MASK_PROTOCOL_VERSION_SCOPE
         ):
@@ -1699,11 +1698,9 @@ class DevContainer(object):
             # can't be used.
             LOG.warning("Support for s390x is highly experimental!")
             bus = (
-                qdevices.QNoAddrCustomBus(
-                    "bus",
-                    [["addr"], [32]],
+                qdevices.QCSSBus(
                     "virtual-css",
-                    "virtual-css",
+                    "virtual-css-bus",
                     "virtual-css",
                 ),
                 qdevices.QCPUBus(params.get("cpu_model"), [[""], [0]], "vcpu"),
@@ -2475,7 +2472,7 @@ class DevContainer(object):
                 if scsi_hba == "virtio-scsi-device":
                     pci_bus = {"type": "virtio-bus"}
                 elif scsi_hba == "virtio-scsi-ccw":
-                    pci_bus = None
+                    pci_bus = {"type": "virtual-css-bus"}
             elif scsi_hba == "spapr-vscsi":
                 addr_spec = [64, 32]
                 pci_bus = None
@@ -2514,7 +2511,7 @@ class DevContainer(object):
         elif fmt == "virtio-blk-device":
             dev_parent = {"type": "virtio-bus"}
         elif fmt == "virtio-blk-ccw":  # For IBM s390 platform
-            dev_parent = {"type": "virtual-css"}
+            dev_parent = {"type": "virtual-css-bus"}
         else:
             dev_parent = {"type": fmt}
 
@@ -2550,6 +2547,8 @@ class DevContainer(object):
                 protocol_cls = qdevices.QBlockdevProtocolFTP
             elif filename.startswith("vdpa:"):
                 protocol_cls = qdevices.QBlockdevProtocolVirtioBlkVhostVdpa
+            elif filename.startswith("vhost-user-blk:"):
+                protocol_cls = qdevices.QBlockdevProtocolVirtioBlkVhostUser
             elif fmt in ("scsi-generic", "scsi-block"):
                 protocol_cls = qdevices.QBlockdevProtocolHostDevice
             elif blkdebug is not None:
@@ -2656,8 +2655,13 @@ class DevContainer(object):
                 ext_data_file_mode = os.stat(external_data_file_path).st_mode
                 if stat.S_ISBLK(ext_data_file_mode):
                     ext_data_file_driver = "host_device"
-            devices[-1].set_param("data-file.driver", ext_data_file_driver)
-            devices[-1].set_param("data-file.filename", external_data_file_path)
+            if Flags.BLOCKDEV in self.caps:
+                if isinstance(format_node, qdevices.QBlockdevFormatQcow2):
+                    format_node.set_param("data-file.driver", ext_data_file_driver)
+                    format_node.set_param("data-file.filename", external_data_file_path)
+            else:
+                devices[-1].set_param("data-file.driver", ext_data_file_driver)
+                devices[-1].set_param("data-file.filename", external_data_file_path)
 
         if "aio" in self.get_help_text():
             if aio == "native" and snapshot == "yes":
@@ -2791,7 +2795,8 @@ class DevContainer(object):
                     else:
                         protocol_node.set_param(key, value)
                     if format_node is not None:
-                        format_node.set_param(key, value)
+                        if key not in ("pr-manager",):
+                            format_node.set_param(key, value)
                         # suppress key if format_node presents
                         if key in ("detect-zeroes",):
                             protocol_node.set_param(key, None)
@@ -2921,42 +2926,56 @@ class DevContainer(object):
             )
             for key, value in blk_extra_params:
                 devices[-1].set_param(key, value)
-        if self.is_dev_iothread_vq_supported(devices[-1]):
-            if num_queues:
-                devices[-1].set_param("num-queues", num_queues)
-            # add iothread-vq-mapping if available
-            if image_iothread_vq_mapping:
-                val = []
-                for item in image_iothread_vq_mapping.strip().split(" "):
-                    allocated_iothread = self.allocate_iothread_vq(
-                        item.split(":")[0], devices[-1]
-                    )
-                    mapping = {"iothread": allocated_iothread.get_qid()}
-                    if len(item.split(":")) == 2:
-                        vqs = [int(_) for _ in item.split(":")[-1].split(",")]
-                        mapping["vqs"] = vqs
-                    val.append(mapping)
-                # FIXME: The reason using set_param() is that the format(
-                #  Example: iothread0:0,1,2 ) can NOT be set by
-                #  Devcontainer.insert() appropriately since the contents
-                #  following after colon are lost.
-                if ":" in image_iothread_vq_mapping:
-                    devices[-1].set_param("iothread-vq-mapping", val)
 
-            if isinstance(
-                self.iothread_manager, vt_iothread.MultiPeerRoundRobinManager
-            ):
-                mapping = self.iothread_manager.pci_dev_iothread_vq_mapping
-                if devices[-1].get_qid() in mapping:
-                    num_iothread = len(mapping[devices[-1].get_qid()])
-                    for i in range(num_iothread):
-                        iothread = self.allocate_iothread_vq("auto", devices[-1])
-                        iothread.iothread_vq_bus.insert(devices[-1])
-            elif isinstance(self.iothread_manager, vt_iothread.FullManager):
-                iothreads = self.allocate_iothread_vq("auto", devices[-1])
-                if iothreads:
-                    for ioth in iothreads:
-                        ioth.iothread_vq_bus.insert(devices[-1])
+        # add iothread_vq_bus_iothread and allocate iothread vq
+        for dev in devices:
+            if self.is_dev_iothread_vq_supported(dev):
+                if num_queues:
+                    driver = dev.params.get("driver")
+                    _driver_nqueues_mapping = {
+                        "virtio-blk-pci": "num-queues",
+                        "virtio-scsi-pci": "num_queues",
+                    }
+                    if driver in _driver_nqueues_mapping.keys():
+                        dev.set_param(_driver_nqueues_mapping[driver], num_queues)
+                    else:
+                        raise DeviceError(
+                            f"Unsupported the num queues for the driver %s so far."
+                            % driver
+                        )
+                # add iothread-vq-mapping if available
+                if image_iothread_vq_mapping:
+                    val = []
+                    for item in image_iothread_vq_mapping.strip().split(" "):
+                        allocated_iothread = self.allocate_iothread_vq(
+                            item.split(":")[0], dev
+                        )
+                        mapping = {"iothread": allocated_iothread.get_qid()}
+                        if len(item.split(":")) == 2:
+                            vqs = [int(_) for _ in item.split(":")[-1].split(",")]
+                            mapping["vqs"] = vqs
+                        val.append(mapping)
+                    # FIXME: The reason using set_param() is that the format(
+                    #  Example: iothread0:0,1,2 ) can NOT be set by
+                    #  Devcontainer.insert() appropriately since the contents
+                    #  following after colon are lost.
+                    if ":" in image_iothread_vq_mapping:
+                        dev.set_param("iothread-vq-mapping", val)
+
+                if isinstance(
+                    self.iothread_manager, vt_iothread.MultiPeerRoundRobinManager
+                ):
+                    mapping = self.iothread_manager.pci_dev_iothread_vq_mapping
+                    if dev.get_qid() in mapping:
+                        num_iothread = len(mapping[dev.get_qid()])
+                        for i in range(num_iothread):
+                            iothread = self.allocate_iothread_vq("auto", dev)
+                            iothread.iothread_vq_bus.insert(dev)
+                elif isinstance(self.iothread_manager, vt_iothread.FullManager):
+                    iothreads = self.allocate_iothread_vq("auto", dev)
+                    if iothreads:
+                        for ioth in iothreads:
+                            ioth.iothread_vq_bus.insert(dev)
         return devices
 
     def images_define_by_params(
@@ -2980,7 +2999,7 @@ class DevContainer(object):
         :param params: Disk params (params.object_params(name))
 
         :raise NotImplementedError: if image_filename shows that this is a vdpa
-                                    device
+                                    device or a vhost-user-blk device
         """
         data_root = data_dir.get_data_dir()
         shared_dir = os.path.join(data_root, "shared")
@@ -3014,6 +3033,11 @@ class DevContainer(object):
             and image_params.get("image_snapshot") == "yes"
         ):
             raise NotImplementedError("vdpa does NOT support the snapshot!")
+        if (
+            image_filename.startswith("vhost-user-blk://")
+            and image_params.get("image_snapshot") == "yes"
+        ):
+            raise NotImplementedError("vhost-user-blk does NOT support the snapshot!")
         if Flags.BLOCKDEV in self.caps and image_params.get("image_snapshot") == "yes":
             # FIXME: Most of attributes for the snapshot should be got from the
             #        base image's metadata, not from the Cartesian parameter,
@@ -3137,7 +3161,7 @@ class DevContainer(object):
                 if bus_type == "virtio-serial-device":
                     pci_bus = {"type": "virtio-bus"}
                 elif bus_type == "virtio-serial-ccw":
-                    pci_bus = None
+                    pci_bus = {"type": "virtual-css-bus"}
                 else:
                     pci_bus = {"aobject": "pci.0"}
                 if bus != "<new>":
@@ -3606,7 +3630,7 @@ class DevContainer(object):
                 qbus_type = "virtio-bus"
             elif machine_type.startswith("s390"):
                 driver += "-ccw"
-                qbus_type = "virtual-css"
+                qbus_type = "virtual-css-bus"
             else:
                 driver += "-pci"
 
@@ -3710,7 +3734,7 @@ class DevContainer(object):
                 qbus_type = "virtio-bus"
             elif machine_type.startswith("s390"):
                 qdriver += "-ccw"
-                qbus_type = "virtual-css"
+                qbus_type = "virtual-css-bus"
             else:
                 qdriver += "-pci"
 
@@ -3871,9 +3895,7 @@ class DevContainer(object):
         if numa_hmat_caches:
             if not self.get_by_properties(
                 {"aobject": "%s_hmat_lb_bandwidth" % nodeid}
-            ) or not self.get_by_properties(
-                {"aobject": "%s_hmat_lb_bandwidth" % nodeid}
-            ):
+            ) or not self.get_by_properties({"aobject": "%s_hmat_lb_latency" % nodeid}):
                 raise exceptions.TestError(
                     "Please make sure both hmat-lb bandwidth and "
                     "hmat-lb latency are defined when define hmat-cache."
@@ -4097,3 +4119,62 @@ class DevContainer(object):
         """
         backend, properties = "iommufd", {"id": obj_id}
         return qdevices.QObject(backend, properties)
+
+    def pr_manager_object_define_by_params(self, pr_manager_name, pr_manager_params):
+        """
+        Create the pr-manager-helper object device by the params.
+
+        :param pr_manager_name: The name of pr-manager-helper object.
+        :type pr_manager_name: str
+        :param pr_manager_params: The related params of pr-manager.
+        :type pr_manager_params: utils_params.Params
+        :return: The related list of the qemu device objects.
+        :rtype: list
+        """
+        devices = []
+
+        pr_manager_name = pr_manager_name
+        pr_manager_user_config = pr_manager_params.get_boolean("pr_manager_user_config")
+
+        pr_manager_props = dict()
+        pr_manager_props.update(
+            json.loads(pr_manager_params.get("pr_manager_props", "{}"))
+        )
+
+        pr_helper_props = dict()
+        pr_helper_props.update(
+            json.loads(pr_manager_params.get("pr_helper_props", "{}"))
+        )
+        binary = pr_helper_props.get("bin_path", "qemu-pr-helper")
+        sock_path = pr_helper_props.get("sock_path")
+        pidfile = pr_helper_props.get("pidfile")
+
+        if pr_manager_user_config:
+            if not sock_path:
+                raise DeviceError(f"Missing the sock path for {pr_manager_name}")
+            child_bus = qdevices.QUnixSocketBus(sock_path, pr_manager_name)
+            pr_helper_dev = qdevices.QDaemonDev("pr_helper", pr_manager_name, child_bus)
+        else:
+            if not sock_path:
+                sock_path = os.path.join(
+                    data_dir.get_tmp_dir(),
+                    f"pr_mgr_{self.vmname}_{pr_manager_name}.sock",
+                )
+
+            if not pidfile:
+                pidfile = os.path.join(
+                    data_dir.get_data_dir(),
+                    f"pr_mgr_{self.vmname}_{pr_manager_name}.pid",
+                )
+
+            log_filename = f"pr_manager_daemon_{self.vmname}_{pr_manager_name}.log"
+
+            pr_helper_dev = qdevices.QPRHelperDev(
+                pr_manager_name, binary, sock_path, pidfile, log_filename
+            )
+
+        devices.append(pr_helper_dev)
+        pr_mgr_dev = qdevices.QPRManager(pr_manager_name, pr_manager_props)
+        pr_mgr_dev.parent_bus = ({"busid": sock_path},)
+        devices.append(pr_mgr_dev)
+        return devices

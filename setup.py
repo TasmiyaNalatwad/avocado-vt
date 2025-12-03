@@ -13,45 +13,10 @@
 # Author: Lucas Meneghel Rodrigues <lmr@redhat.com>
 
 # pylint: disable=E0611
-import os
-import shutil
-from distutils.command.clean import clean
-from pathlib import Path
 
 from setuptools import find_packages, setup
 
 VERSION = open("VERSION", "r").read().strip()
-
-
-class Clean(clean):
-    """Our custom command to get rid of scratch files after build."""
-
-    description = "Get rid of scratch, byte files and build stuff."
-
-    def run(self):
-        super().run()
-        cleaning_list = [
-            "MANIFEST",
-            "BUILD",
-            "BUILDROOT",
-            "SPECS",
-            "RPMS",
-            "SRPMS",
-            "SOURCES",
-            "PYPI_UPLOAD",
-            "./build",
-        ]
-
-        cleaning_list += list(Path(".").rglob("*.pyc"))
-        cleaning_list += list(Path(".").rglob("__pycache__"))
-
-        for e in cleaning_list:
-            if not os.path.exists(e):
-                continue
-            if os.path.isfile(e):
-                os.remove(e)
-            if os.path.isdir(e):
-                shutil.rmtree(e)
 
 
 if __name__ == "__main__":
@@ -64,6 +29,14 @@ if __name__ == "__main__":
         url="http://github.com/avocado-framework/avocado-vt",
         packages=find_packages(exclude=("selftests*",)),
         include_package_data=True,
+        package_data={
+            "avocado_vt": ["conf.d/**"],
+            "virttest": [
+                "test-providers.d/**",
+                "backends/**",
+                "shared/**",
+            ],
+        },
         entry_points={
             "console_scripts": [
                 "avocado-runner-avocado-vt = avocado_vt.plugins.vt_runner:main",
@@ -96,6 +69,10 @@ if __name__ == "__main__":
                 "avocado-vt = avocado_vt.plugins.vt_runner:VTTestRunner",
             ],
         },
-        install_requires=["netifaces", "six", "aexpect", "avocado-framework>=82.1"],
-        cmdclass={"clean": Clean},
+        install_requires=[
+            "packaging",
+            "six",
+            "aexpect",
+            "avocado-framework>=82.1",
+        ],
     )

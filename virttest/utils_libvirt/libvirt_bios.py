@@ -29,3 +29,33 @@ def remove_bootconfig_items_from_vmos(osxml):
     if os_attrs.get("firmware"):
         osxml.del_firmware()
     return osxml
+
+
+def check_boot_config(session, test, check_list):
+    """
+    Check /boot/config-$KVER file.
+
+    :param session: vm session.
+    :param test: test object.
+    :param check_list: checking list.
+    :raises: test.fail if checking fails.
+    """
+    current_boot = session.cmd("uname -r").strip()
+    kernel_configs = [
+        "/boot/config-%s" % current_boot,
+        "/usr/lib/modules/%s/config" % current_boot,
+    ]
+    valid_config = next(
+        (c for c in kernel_configs if not session.cmd_status("ls %s" % c)), None
+    )
+    if not valid_config:
+        test.fail("no kernel config found at %s" % kernel_configs)
+
+    if not isinstance(check_list, list):
+        check_list = [check_list]
+    content = session.cmd("cat %s" % valid_config).strip()
+    for item in check_list:
+        if item in content:
+            test.log.debug("%s content: %s exist", valid_config, item)
+        else:
+            test.fail("%s content not correct: %s not exist" % (valid_config, item))

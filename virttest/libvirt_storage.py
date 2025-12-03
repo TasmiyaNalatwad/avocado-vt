@@ -18,7 +18,6 @@ LOG = logging.getLogger("avocado." + __name__)
 
 
 class QemuImg(storage.QemuImg):
-
     """
     libvirt class for handling operations of disk/block images.
     """
@@ -114,7 +113,6 @@ class QemuImg(storage.QemuImg):
 
 
 class StoragePool(object):
-
     """
     Pool Manager for libvirt storage with virsh commands
     """
@@ -430,7 +428,6 @@ class StoragePool(object):
 
 
 class PoolVolume(object):
-
     """Volume Manager for libvirt storage pool."""
 
     def __init__(self, pool_name, virsh_instance=virsh):
@@ -578,6 +575,6 @@ def check_qemu_image_lock_support():
     except process.CmdError:
         raise process.CmdError(cmd, binary_path, "qemu-img command is not found")
     cmd_result = process.run(
-        binary_path + " -h", ignore_status=True, shell=True, verbose=False
+        binary_path + " info -h", ignore_status=True, shell=True, verbose=False
     )
     return "-U" in cmd_result.stdout_text

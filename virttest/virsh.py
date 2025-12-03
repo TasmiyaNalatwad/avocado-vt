@@ -81,7 +81,6 @@ except path.CmdNotFoundError:
 
 
 class VirshBase(propcan.PropCanBase):
-
     """
     Base Class storing libvirt Connection & state to a host
     """
@@ -112,7 +111,6 @@ class VirshBase(propcan.PropCanBase):
 
 
 class VirshSession(aexpect.ShellSession):
-
     """
     A virsh shell session, used with Virsh instances.
     """
@@ -387,7 +385,6 @@ class VirshSession(aexpect.ShellSession):
 # Work around for inconsistent builtin closure local reference problem
 # across different versions of python
 class VirshClosure(object):
-
     """
     Callable with weak ref. to override ``**dargs`` when calling reference_function
     """
@@ -421,7 +418,6 @@ class VirshClosure(object):
 
 
 class Virsh(VirshBase):
-
     """
     Execute libvirt operations, using a new virsh shell each time.
     """
@@ -447,7 +443,6 @@ class Virsh(VirshBase):
 
 
 class VirshPersistent(Virsh):
-
     """
     Execute libvirt operations using persistent virsh session.
     """
@@ -600,7 +595,6 @@ class VirshPersistent(Virsh):
 
 
 class VirshConnectBack(VirshPersistent):
-
     """
     Persistent virsh session connected back from a remote host
     """
@@ -746,9 +740,11 @@ class EventTracker(object):
                 return (
                     kwargs.get(arg)
                     if arg in kwargs
-                    else inspect.signature(func).parameters[arg].default
-                    if arg in inspect.signature(func).parameters
-                    else None
+                    else (
+                        inspect.signature(func).parameters[arg].default
+                        if arg in inspect.signature(func).parameters
+                        else None
+                    )
                 )
 
             def _get_event_output(session):
@@ -1133,7 +1129,6 @@ def reboot(
     event_timeout=30,
     **dargs,
 ):
-
     """
     Run a reboot command in the target domain.
 
@@ -2298,6 +2293,19 @@ def net_info(network, extra="", **dargs):
     return command("net-info %s %s" % (network, extra), **dargs)
 
 
+def net_desc(network, extra="", **dargs):
+    """
+    net-desc - show or set network's description or title.
+
+    :param network: network name or uuid.
+    :param extra: extra parameters to pass to command.
+    :param dargs: standardized virsh function API keywords.
+    :return: CmdResult instance.
+    """
+    cmd = "net-desc %s %s" % (network, extra)
+    return command(cmd, **dargs)
+
+
 def net_update(network, update_cmd, section, xml, extra="", **dargs):
     """
     Update parts of an existing network's configuration
@@ -2311,6 +2319,20 @@ def net_update(network, update_cmd, section, xml, extra="", **dargs):
     :return: CmdResult instance
     """
     cmd = "net-update %s %s %s %s %s" % (network, update_cmd, section, xml, extra)
+    return command(cmd, **dargs)
+
+
+def net_metadata(network, uri, extra="", **dargs):
+    """
+    net-metadata - show or set network's custom XML metadata
+
+    :param network: network name or uuid.
+    :param uri: URI of the namespace.
+    :param extra: extra parameters to pass to command.
+    :param dargs: standardized virsh function API keywords.
+    :return: CmdResult instance.
+    """
+    cmd = "net-metadata %s %s %s" % (network, uri, extra)
     return command(cmd, **dargs)
 
 
@@ -4299,6 +4321,23 @@ def nodedev_define(xml_file, **dargs):
     return command(cmd, **dargs)
 
 
+def nodedev_update(nodedev_name, xml_file, options=None, **dargs):
+    """
+    Return cmd result of the device to be update by an XML file
+
+    :param nodedev_name: node device name for update
+    :param xml_file: device XML file
+    :param dargs: standardized virsh function API keywords
+    :return: CmdResult object
+    """
+    cmd = "nodedev-update %s %s" % (nodedev_name, xml_file)
+    if options is not None:
+        cmd += " %s" % options
+
+    LOG.debug("Updated the device from %s", xml_file)
+    return command(cmd, **dargs)
+
+
 def nodedev_create(xml_file, options=None, **dargs):
     """
     Return cmd result of the device to be created by an XML file
@@ -4963,6 +5002,17 @@ def metadata(name, uri, options="", key=None, new_metadata=None, **dargs):
     if new_metadata:
         cmd += " --set '%s'" % new_metadata.replace("'", '"')
     return command(cmd, **dargs)
+
+
+def hypervisor_cpu_models(options="", **dargs):
+    """
+    List CPUs available to libvirt based on hypervisor information.
+
+    :param options: extra options passed to virsh command
+    :param dargs: standardized virsh function API keywords
+    :return: CmdResult instance
+    """
+    return command("hypervisor-cpu-models %s" % options, **dargs)
 
 
 def cpu_models(arch, options="", **dargs):

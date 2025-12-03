@@ -5,6 +5,7 @@ Available functions:
 - get_image_filename: Get the device path from vdpa.
 
 """
+
 from virttest import utils_vdpa
 
 
@@ -16,7 +17,7 @@ def get_image_filename(name):
 
     :param name: the name of device
     :type name: str
-    :return: The path from vdpa in vpda protocol
+    :return: The path from vdpa in vdpa protocol
              e.g: vdpa:///dev/vhost-vdpa
     :rtype: str
     """

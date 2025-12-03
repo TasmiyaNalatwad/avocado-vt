@@ -11,7 +11,6 @@ import sys
 import threading
 import time
 
-import aexpect
 import six
 from aexpect import remote
 from avocado.core import exceptions
@@ -42,10 +41,12 @@ from virttest import (
 
 # lazy imports for dependencies that are not needed in all modes of use
 from virttest._wrappers import lazy_import
+from virttest.test_setup.aexpect import KillTailThreads
 from virttest.test_setup.core import SetupManager
 from virttest.test_setup.gcov import ResetQemuGCov
-from virttest.test_setup.kernel import ReloadKVMModules
+from virttest.test_setup.kernel import KSMSetup, ReloadKVMModules
 from virttest.test_setup.libvirt_setup import LibvirtdDebugLogConfig
+from virttest.test_setup.memory import HugePagesSetup, TransparentHugePagesSetup
 from virttest.test_setup.migration import MigrationEnvSetup
 from virttest.test_setup.networking import (
     BridgeConfig,
@@ -61,10 +62,12 @@ from virttest.test_setup.requirement_checks import (
     CheckLibvirtVersion,
     CheckQEMUVersion,
     CheckRunningAsRoot,
+    CheckVirtioFSDVersion,
     CheckVirtioWinVersion,
     LogBootloaderVersion,
     LogVersionInfo,
 )
+from virttest.test_setup.rng_egd import EGDSetup
 from virttest.test_setup.storage import StorageConfig
 from virttest.test_setup.verify import VerifyHostDMesg
 from virttest.test_setup.vms import ProcessVMOff, UnrequestedVMHandler
@@ -90,11 +93,6 @@ _vm_info_thread = None
 _vm_info_thread_termination_event = None
 
 _setup_manager = SetupManager()
-
-# default num of surplus hugepage, order to compare the values before and after
-# the test when 'setup_hugepages = yes'
-_pre_hugepages_surp = 0
-_post_hugepages_surp = 0
 
 #: Hooks to use for own customization stages of the virtual machines with
 #: test, params. and env as supplied arguments
@@ -224,11 +222,12 @@ def preprocess_vm(test, params, env, name):
                     nested_cmdline = params.get("virtinstall_qemu_cmdline", "")
                     # virt-install doesn't have option, so use qemu-cmdline
                     if "cap-nested-hv=on" not in nested_cmdline:
-                        params[
-                            "virtinstall_qemu_cmdline"
-                        ] = "%s -M %s,cap-nested-hv=on" % (
-                            nested_cmdline,
-                            params["machine_type"],
+                        params["virtinstall_qemu_cmdline"] = (
+                            "%s -M %s,cap-nested-hv=on"
+                            % (
+                                nested_cmdline,
+                                params["machine_type"],
+                            )
                         )
                 elif params.get("vm_type") == "qemu":
                     nested_cmdline = params.get("machine_type_extra_params", "")
@@ -736,7 +735,6 @@ def process_command(test, params, env, command, command_timeout, command_noncrit
 
 
 class _CreateImages(threading.Thread):
-
     """
     Thread which creates images. In case of failure it stores the exception
     in self.exc_info
@@ -1013,16 +1011,22 @@ def preprocess(test, params, env):
     _setup_manager.register(BridgeConfig)
     _setup_manager.register(StorageConfig)
     _setup_manager.register(FirewalldService)
+    _setup_manager.register(KillTailThreads)
     _setup_manager.register(IPSniffer)
     _setup_manager.register(MigrationEnvSetup)
     _setup_manager.register(UnrequestedVMHandler)
     _setup_manager.register(ReloadKVMModules)
     _setup_manager.register(CheckKernelVersion)
     _setup_manager.register(CheckQEMUVersion)
+    _setup_manager.register(CheckVirtioFSDVersion)
     _setup_manager.register(LogBootloaderVersion)
     _setup_manager.register(CheckVirtioWinVersion)
     _setup_manager.register(CheckLibvirtVersion)
     _setup_manager.register(LogVersionInfo)
+    _setup_manager.register(HugePagesSetup)
+    _setup_manager.register(TransparentHugePagesSetup)
+    _setup_manager.register(KSMSetup)
+    _setup_manager.register(EGDSetup)
     _setup_manager.do_setup()
 
     vm_type = params.get("vm_type")
@@ -1030,36 +1034,6 @@ def preprocess(test, params, env):
     base_dir = data_dir.get_data_dir()
 
     libvirtd_inst = None
-
-    # If guest is configured to be backed by hugepages, setup hugepages in host
-    if params.get("hugepage") == "yes":
-        params["setup_hugepages"] = "yes"
-
-    if params.get("setup_hugepages") == "yes":
-        global _pre_hugepages_surp
-        h = test_setup.HugePageConfig(params)
-        _pre_hugepages_surp = h.ext_hugepages_surp
-        suggest_mem = h.setup()
-        if suggest_mem is not None:
-            params["mem"] = suggest_mem
-        if not params.get("hugepage_path"):
-            params["hugepage_path"] = h.hugepage_path
-        if vm_type == "libvirt":
-            if libvirtd_inst is None:
-                libvirtd_inst = utils_libvirtd.Libvirtd()
-            libvirtd_inst.restart()
-
-    if params.get("setup_thp") == "yes":
-        thp = test_setup.TransparentHugePageConfig(test, params, env)
-        thp.setup()
-
-    if params.get("setup_ksm") == "yes":
-        ksm = test_setup.KSMConfig(params, env)
-        ksm.setup(env)
-
-    if params.get("setup_egd") == "yes":
-        egd = test_setup.EGDConfig(params, env)
-        egd.setup()
 
     if vm_type == "libvirt":
         connect_uri = params.get("connect_uri")
@@ -1384,7 +1358,7 @@ def postprocess(test, params, env):
         )
     except Exception as details:
         err += "\nPostprocess: %s" % str(details).replace("\\n", "\n  ")
-        LOG.error(details)
+        LOG.exception(details)
 
     # Terminate the screendump thread
     global _screendump_thread, _screendump_thread_termination_event
@@ -1495,9 +1469,6 @@ def postprocess(test, params, env):
             LOG.debug("Image of VM %s was removed, destroying it.", vm.name)
             vm.destroy()
 
-    # Kill all aexpect tail threads
-    aexpect.kill_tail_threads()
-
     # collect sosreport of host/remote host during postprocess if enabled
     if params.get("enable_host_sosreport", "no") == "yes":
         sosreport_path = utils_misc.get_sosreport(sosreport_name="host")
@@ -1534,45 +1505,6 @@ def postprocess(test, params, env):
     libvirtd_inst = None
     vm_type = params.get("vm_type")
 
-    if params.get("setup_hugepages") == "yes":
-        global _post_hugepages_surp
-        try:
-            h = test_setup.HugePageConfig(params)
-            h.cleanup()
-            if vm_type == "libvirt":
-                if libvirtd_inst is None:
-                    libvirtd_inst = utils_libvirtd.Libvirtd()
-                libvirtd_inst.restart()
-        except Exception as details:
-            err += "\nHP cleanup: %s" % str(details).replace("\\n", "\n  ")
-            LOG.error(details)
-        else:
-            _post_hugepages_surp = h.ext_hugepages_surp
-
-    if params.get("setup_thp") == "yes":
-        try:
-            thp = test_setup.TransparentHugePageConfig(test, params, env)
-            thp.cleanup()
-        except Exception as details:
-            err += "\nTHP cleanup: %s" % str(details).replace("\\n", "\n  ")
-            LOG.error(details)
-
-    if params.get("setup_ksm") == "yes":
-        try:
-            ksm = test_setup.KSMConfig(params, env)
-            ksm.cleanup(env)
-        except Exception as details:
-            err += "\nKSM cleanup: %s" % str(details).replace("\\n", "\n  ")
-            LOG.error(details)
-
-    if params.get("setup_egd") == "yes" and params.get("kill_vm") == "yes":
-        try:
-            egd = test_setup.EGDConfig(params, env)
-            egd.cleanup()
-        except Exception as details:
-            err += "\negd.pl cleanup: %s" % str(details).replace("\\n", "\n  ")
-            LOG.error(details)
-
     if vm_type == "libvirt":
         if params.get("setup_libvirt_polkit") == "yes":
             try:
@@ -1607,9 +1539,6 @@ def postprocess(test, params, env):
 
     if err:
         raise RuntimeError("Failures occurred while postprocess:\n%s" % err)
-    elif _post_hugepages_surp > _pre_hugepages_surp:
-        leak_num = _post_hugepages_surp - _pre_hugepages_surp
-        raise exceptions.TestFail("%d huge pages leaked!" % leak_num)
 
 
 def postprocess_on_error(test, params, env):

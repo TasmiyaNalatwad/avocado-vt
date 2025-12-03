@@ -19,7 +19,6 @@ import time
 import uuid
 
 import aexpect
-import netifaces
 import six
 from aexpect import remote
 from avocado.core import exceptions
@@ -386,7 +385,6 @@ def warp_init_del(func):
 
 
 class Interface(object):
-
     """Class representing a Linux network device."""
 
     def __init__(self, name):
@@ -692,7 +690,6 @@ class Interface(object):
 
 
 class Macvtap(Interface):
-
     """
     class of macvtap, base Interface
     """
@@ -755,7 +752,6 @@ class Macvtap(Interface):
 
 
 class IPAddress(object):
-
     """
     Class to manipulate IPv4 or IPv6 address.
     """
@@ -898,7 +894,7 @@ def raw_ping(command, timeout, session, output_func):
             status = -1
         else:
             try:
-                status = int(re.findall("\d+", o2)[0])
+                status = int(re.findall(r"\d+", o2)[0])
             except Exception:
                 status = -1
 
@@ -1505,7 +1501,7 @@ def get_remote_host_net_ifs(session, state=None, ip_options=""):
     return (phy_interfaces, vir_interfaces)
 
 
-def get_net_if_addrs(if_name, runner=None):
+def get_net_if_addrs(if_name, runner=None, ip_options=""):
     """
     Get network device ip addresses. ioctl not used because it's not
     compatible with ipv6 address.
@@ -1515,7 +1511,7 @@ def get_net_if_addrs(if_name, runner=None):
     """
     if runner is None:
         runner = local_runner
-    cmd = "ip addr show %s" % (if_name)
+    cmd = f"ip {ip_options} addr show {if_name}"
     result = runner(cmd)
     return {
         "ipv4": re.findall("inet (.+?)/..?", result, re.MULTILINE),
@@ -1553,7 +1549,13 @@ def get_net_if_and_addrs(runner=None):
 
 
 def get_guest_ip_addr(
-    session, mac_addr, os_type="linux", ip_version="ipv4", linklocal=False, timeout=1
+    session,
+    mac_addr,
+    os_type="linux",
+    ip_version="ipv4",
+    linklocal=False,
+    timeout=1,
+    ip_options="",
 ):
     """
     Get guest ip addresses by serial session
@@ -1574,7 +1576,9 @@ def get_guest_ip_addr(
             if os_type == "linux":
                 nic_ifname = get_linux_ifname(session, mac_addr)
                 info_cmd = "ifconfig -a; ethtool -S %s" % nic_ifname
-                nic_address = get_net_if_addrs(nic_ifname, session.cmd_output)
+                nic_address = get_net_if_addrs(
+                    nic_ifname, session.cmd_output, ip_options=ip_options
+                )
             elif os_type == "windows":
                 info_cmd = "ipconfig /all"
                 nic_address = get_net_if_addrs_win(session, mac_addr)
@@ -2320,7 +2324,6 @@ def if_set_macaddress(ifname, mac):
 
 
 class IPv6Manager(propcan.PropCanBase):
-
     """
     Setup and cleanup IPv6 environment.
     """
@@ -2626,7 +2629,6 @@ ieee_eui64_assignment = ieee_eui_assignment(64)
 
 
 class VirtIface(propcan.PropCan, object):
-
     """
     Networking information for single guest interface and host connection.
     """
@@ -2769,7 +2771,6 @@ class VirtIface(propcan.PropCan, object):
 
 
 class LibvirtIface(VirtIface):
-
     """
     Networking information specific to libvirt
     """
@@ -2778,7 +2779,6 @@ class LibvirtIface(VirtIface):
 
 
 class QemuIface(VirtIface):
-
     """
     Networking information specific to Qemu
     """
@@ -2803,7 +2803,6 @@ class QemuIface(VirtIface):
 
 
 class VMNet(list):
-
     """
     Collection of networking information.
     """
@@ -2957,7 +2956,6 @@ class VMNet(list):
 # for xen networking.  This will also enable further extensions
 # to network information handing in the future.
 class VMNetStyle(dict):
-
     """
     Make decisions about needed info from vm_type and driver_type params.
     """
@@ -3004,7 +3002,6 @@ class VMNetStyle(dict):
 
 
 class ParamsNet(VMNet):
-
     """
     Networking information from Params
 
@@ -3127,7 +3124,6 @@ class ParamsNet(VMNet):
 
 
 class DbNet(VMNet):
-
     """
     Networking information from database
 
@@ -3272,7 +3268,6 @@ def clean_tmp_files():
 
 
 class VirtNet(DbNet, ParamsNet):
-
     """
     Persistent collection of VM's networking information.
     """
@@ -3599,7 +3594,7 @@ def gen_ipv4_addr(network_num="10.0.0.0", network_prefix="24", exclude_ips=[]):
 
     :return: ipaddress of type str
     """
-    ip_regex = "^\d+.\d+.\d+.\d+$"
+    ip_regex = r"^\d+.\d+.\d+.\d+$"
     exclude_ips = set(exclude_ips)
     if not re.match(ip_regex, network_num):
         network_num = "10.0.0.0"
@@ -3622,32 +3617,31 @@ def get_ip_address_by_interface(ifname, ip_ver="ipv4", linklocal=False):
     :raise NetError: When failed to fetch IP address.
     """
     if ip_ver == "ipv6":
-        ver = netifaces.AF_INET6
         linklocal_prefix = "fe80"
     else:
-        ver = netifaces.AF_INET
         linklocal_prefix = "169.254"
+
     try:
-        addr = netifaces.ifaddresses(ifname).get(ver)
-    # FIXME: The kind of exceptions caught should be more specific
-    except:
+        addr_info = get_net_if_addrs(ifname)
+        addr_list = addr_info.get(ip_ver, [])
+    except Exception:
         # TODO: NetError is a very general usage,it will be changed to a
         # more friendly way in the future
         raise NetError("Error while retrieving IP address from interface %s." % ifname)
 
-    if addr is not None:
+    if addr_list:
         try:
             if linklocal:
                 return [
-                    a["addr"]
-                    for a in addr
-                    if a["addr"].lower().startswith(linklocal_prefix)
+                    addr
+                    for addr in addr_list
+                    if addr.lower().startswith(linklocal_prefix)
                 ][0]
             else:
                 return [
-                    a["addr"]
-                    for a in addr
-                    if not a["addr"].lower().startswith(linklocal_prefix)
+                    addr
+                    for addr in addr_list
+                    if not addr.lower().startswith(linklocal_prefix)
                 ][0]
         except IndexError:
             LOG.warning(
@@ -3746,7 +3740,7 @@ def get_linux_mac(session, nic):
     Get MAC address by nic name
     """
     sys_path = "%s/%s" % (SYSFS_NET_PATH, nic)
-    pattern = "(\w{2}:\w{2}:\w{2}:\w{2}\:\w{2}:\w{2})"
+    pattern = r"(\w{2}:\w{2}:\w{2}:\w{2}\:\w{2}:\w{2})"
     if session.cmd_status("test -d %s" % sys_path) == 0:
         mac_index = 1
         show_mac_cmd = "cat %s/address" % sys_path
@@ -4064,7 +4058,12 @@ def get_host_iface():
 
 
 def get_default_gateway_json(
-    iface_name=False, session=None, ip_ver="ipv4", force_dhcp=False, target_iface=None
+    iface_name=False,
+    session=None,
+    ip_ver="ipv4",
+    force_dhcp=False,
+    target_iface=None,
+    multiple_nexthops=False,
 ):
     """
     Get the Default Gateway or Interface of host or guest with "ip -j".
@@ -4074,6 +4073,9 @@ def get_default_gateway_json(
     :param session: shell/console session if any, defaults to None
     :param ip_ver: ip version, defaults to 'ipv4'
     :param target_iface: if given, get default gateway only for this device
+    :param multiple_nexthops: True to support multiple nexthops in output of
+                        `ip -6 route`, otherwise False
+
     :return: default gateway of target iface
     """
     ip_cmd = "ip -j"
@@ -4111,21 +4113,27 @@ def get_default_gateway_json(
         default_route_list = non_multi + multi
     LOG.debug(f"default_route_list: {default_route_list}")
 
-    if len(default_route_list) == 0:
-        raise exceptions.TestError("Cannot get default gateway with given condition")
-    elif len(default_route_list) == 1:
-        default_route = default_route_list[0]
-        if iface_name and "dev" in default_route:
-            return default_route["dev"]
-        if "gateway" in default_route:
-            return default_route["gateway"]
+    if len(default_route_list) > 1:
+        # For multiple default gateway, return the one with smaller metric
+        # which has the higher priority
+        default_route_list = [
+            x
+            for x in default_route_list
+            if x.get("metric", float("inf"))
+            == min([y.get("metric", float("inf")) for y in default_route_list])
+        ]
+        LOG.debug(f"default_route_list with the smaller metric: {default_route_list}")
+
+    if iface_name:
+        out_list = [x.get("dev") for x in default_route_list]
     else:
-        # TODO:deal with multiple gateway
-        if iface_name:
-            gw = [path["dev"] for path in default_route_list]
-        else:
-            gw = [path["gateway"] for path in default_route_list]
-        return gw
+        out_list = [x.get("gateway") for x in default_route_list]
+    out = [item for item in out_list if item != None]
+    if len(out) == 0:
+        raise exceptions.TestError(
+            "Cannot get default gateway in the default route list"
+        )
+    return out if multiple_nexthops else out[0]
 
 
 def get_default_gateway(
@@ -4135,6 +4143,7 @@ def get_default_gateway(
     force_dhcp=False,
     target_iface=None,
     json=False,
+    multiple_nexthops=False,
 ):
     """
     Get the Default Gateway or Interface of host or guest.
@@ -4145,11 +4154,17 @@ def get_default_gateway(
     :param ip_ver: ip version, defaults to 'ipv4'
     :param target_iface: if given, get default gateway only for this device
     :param json: True to call get_default_gateway_json, defaults to False
+    :param multiple_nexthops: True to support multiple nexthops, otherwise False
     :return: default gateway of target iface
     """
     if json:
         return get_default_gateway_json(
-            iface_name, session, ip_ver, force_dhcp, target_iface
+            iface_name,
+            session,
+            ip_ver,
+            force_dhcp,
+            target_iface,
+            multiple_nexthops,
         )
 
     if ip_ver == "ipv4":
@@ -4185,7 +4200,7 @@ def get_default_gateway(
         LOG.error("Failed to get the default GateWay")
         return None
     # historically the function was implemented with grep and pipes
-    # therefore, there could be a multiline match with multiline
+    # therefore, there could be a multi-line match with multi-line
     # result and tests expect that
     return "\n".join(gateways)
 
@@ -4294,7 +4309,7 @@ def map_hostname_ipaddress(hostname_ip_dict, session=None):
         if status != 0:
             LOG.error(output)
             return False
-        pattern = "%s(\s+)%s$" % (ipaddress, hostname)
+        pattern = r"%s(\s+)%s$" % (ipaddress, hostname)
         if not re.search(pattern, output):
             cmd = "echo '%s %s' >> %s" % (ipaddress, hostname, hosts_file)
             status, output = func(cmd)
@@ -4527,7 +4542,7 @@ def get_msis_and_queues_windows(params, vm, timeout=360):
     return _get_msis_queues_from_traceview_output(output)
 
 
-def set_netkvm_param_value(vm, param, value):
+def set_netkvm_param_value(vm, param, value, nic_index=0):
     """
     Set the value of certain 'param' in netkvm driver to 'value'
     This function will restart the first nic, so all the sessions
@@ -4536,22 +4551,24 @@ def set_netkvm_param_value(vm, param, value):
     param vm: the target vm
     param param: the param
     param value: the value
+    param nic_index: index of the NIC to operate on (default: 0)
     """
 
     session = vm.wait_for_serial_login(timeout=360)
     netkvmco_path = virtio_win.prepare_netkvmco(vm)
     try:
-        LOG.info("Set %s to %s" % (param, value))
+        LOG.info("Set %s to %s on NIC %d", param, value, nic_index)
         exec_src = "netsh netkvm" if "netkvmco.dll" in netkvmco_path else netkvmco_path
-        cmd = f"{exec_src} setparam 0 param={param} value={value}"
+        cmd = f"{exec_src} setparam {nic_index} param={param} value={value}"
         status, output = session.cmd_status_output(cmd)
         if status:
             err = "Error occured when set %s to value %s. " % (param, value)
-            err += "With status=%s, output=%s" % (status, output)
+            err += "With status=%s, output=%s " % (status, output)
+            err += "on NIC %s" % nic_index
             raise exceptions.TestError(err)
 
-        LOG.info("Restart nic to apply changes")
-        dev_mac = vm.virtnet[0].mac
+        LOG.info("Restart NIC %d to apply changes", nic_index)
+        dev_mac = vm.virtnet[nic_index].mac
         connection_id = get_windows_nic_attribute(
             session, "macaddress", dev_mac, "netconnectionid"
         )
@@ -4561,25 +4578,27 @@ def set_netkvm_param_value(vm, param, value):
         session.close()
 
 
-def get_netkvm_param_value(vm, param):
+def get_netkvm_param_value(vm, param, nic_index=0):
     """
     Get the value of certain 'param' in netkvm driver.
 
     param vm: the target vm
     param param: the param
+    param nic_index: index of the NIC to operate on (default: 0)
     return: the value of the param
     """
 
     session = vm.wait_for_serial_login(timeout=360)
     netkvmco_path = virtio_win.prepare_netkvmco(vm)
     try:
-        LOG.info("Get the value of %s" % param)
+        LOG.info("Get %s on NIC %d", param, nic_index)
         exec_src = "netsh netkvm" if "netkvmco.dll" in netkvmco_path else netkvmco_path
-        cmd = f"{exec_src} getparam 0 param={param}"
+        cmd = f"{exec_src} getparam {nic_index} param={param}"
         status, output = session.cmd_status_output(cmd)
         if status:
             err = "Error occured when get value of %s. " % param
-            err += "With status=%s, output=%s" % (status, output)
+            err += "With status=%s, output=%s " % (status, output)
+            err += "on NIC %s" % nic_index
             raise exceptions.TestError(err)
         lines = output.strip().splitlines()
         value = lines[0].strip().split("=")[1].strip()
@@ -4588,13 +4607,16 @@ def get_netkvm_param_value(vm, param):
         session.close()
 
 
-def create_ovs_bridge(ovs_bridge_name, session=None, ignore_status=False):
+def create_ovs_bridge(
+    ovs_bridge_name, session=None, ignore_status=False, ip_options=""
+):
     """
     Create ovs bridge via tmux command on local or remote
 
     :param ovs_bridge_name: The ovs bridge
     :param session: The remote session
     :param ignore_status: Whether to raise an exception when command fails
+    :param ip_options: ip command options
     :return: The command status and output
     """
     runner = process.run
@@ -4606,7 +4628,7 @@ def create_ovs_bridge(ovs_bridge_name, session=None, ignore_status=False):
     runner = local_runner
     if session:
         runner = session.cmd
-    iface_name = get_net_if(runner=runner, state="UP")[0]
+    iface_name = get_net_if(runner=runner, state="UP", ip_options=ip_options)[0]
     if not utils_package.package_install(["tmux", "dhcp-client"], session):
         raise exceptions.TestError("Failed to install the required packages.")
 
@@ -4629,13 +4651,16 @@ def create_ovs_bridge(ovs_bridge_name, session=None, ignore_status=False):
     )
 
 
-def delete_ovs_bridge(ovs_bridge_name, session=None, ignore_status=False):
+def delete_ovs_bridge(
+    ovs_bridge_name, session=None, ignore_status=False, ip_options=""
+):
     """
     Delete ovs bridge via tmux command on local or remote
 
     :param ovs_bridge_name: The ovs bridge
     :param session: The remote session
     :param ignore_status: Whether to raise an exception when command fails
+    :param ip_options: ip command options
     :return: The command status and output
     """
     runner = process.run
@@ -4647,7 +4672,7 @@ def delete_ovs_bridge(ovs_bridge_name, session=None, ignore_status=False):
     runner = local_runner
     if session:
         runner = session.cmd
-    iface_name = get_net_if(runner=runner, state="UP")[0]
+    iface_name = get_net_if(runner=runner, state="UP", ip_options=ip_options)[0]
     if not utils_package.package_install(["tmux", "dhcp-client"], session):
         raise exceptions.TestError("Failed to install the required packages.")
 
@@ -4729,10 +4754,14 @@ def set_channel(session, interface, parameter, value):
 
 
 def create_linux_bridge_tmux(
-    linux_bridge_name, iface_name=None, ignore_status=False, remove_addr_on_dev=True
+    linux_bridge_name,
+    iface_name=None,
+    ignore_status=False,
+    remove_addr_on_dev=True,
+    session=None,
 ):
     """
-    Create linux bridge and connect a physical interface to the bridge via tmux command on local host.
+    Create linux bridge and connect a physical interface to the bridge via tmux command on local or remote host.
     Note: If iface_name is specified, it should be the one in current connection. Or you will break current
     connection as this function will bring up the bridge and switch the network traffic to this bridge which
     share the same mac with iface_name.
@@ -4744,14 +4773,19 @@ def create_linux_bridge_tmux(
     interface to the bridge
     :param ignore_status: Whether to raise an exception when command fails
     :param remove_addr_on_dev: boolean. True to remove address on dev, otherwise keep the address
+    :param session: The remote session
     :return: bridge created or raise exception
     """
     # Create bridge
     br_path = "/sys/class/net/%s" % linux_bridge_name
-    if not utils_package.package_install(["tmux", "dhcp-client", "net-tools"]):
+    if not utils_package.package_install(["tmux", "dhcp-client", "net-tools"], session):
         raise exceptions.TestError("Failed to install the required packages.")
-    if os.path.exists(br_path):
-        s, o = delete_linux_bridge_tmux(linux_bridge_name, iface_name)
+    if session:
+        bridge_exists = session.cmd_status("ip link show %s" % linux_bridge_name) == 0
+    else:
+        bridge_exists = os.path.exists(br_path)
+    if bridge_exists:
+        s, o = delete_linux_bridge_tmux(linux_bridge_name, iface_name, session=session)
         if s:
             raise exceptions.TestError(
                 "Create bridge fail as there is already interface named '%s' on the host "
@@ -4770,11 +4804,16 @@ def create_linux_bridge_tmux(
     else:
         cmd = "ip link add %s type bridge" % linux_bridge_name
     return utils_misc.cmd_status_output(
-        cmd, shell=True, verbose=True, ignore_status=ignore_status
+        cmd, shell=True, verbose=True, ignore_status=ignore_status, session=session
     )
 
 
-def delete_linux_bridge_tmux(linux_bridge_name, iface_name=None, ignore_status=False):
+def delete_linux_bridge_tmux(
+    linux_bridge_name,
+    iface_name=None,
+    ignore_status=False,
+    session=None,
+):
     """
     Delete the linux bridge on the host, and recover the network on the physical interface
 
@@ -4782,26 +4821,35 @@ def delete_linux_bridge_tmux(linux_bridge_name, iface_name=None, ignore_status=F
     :param iface_name: the physical interface has been attached to the bridge, if None, it means no interface
     is attached to the bridge
     :param ignore_status: Whether to raise an exception when command fails
+    :param session: The remote session
     :return: bridge deleted or raise exception
     """
-    # Delete the linux bridge
-    br_path = "/sys/class/net/%s" % linux_bridge_name
-    if not utils_package.package_install(
-        ["tmux", "dhcp-client", "procps-ng", "net-tools"]
-    ):
-        raise exceptions.TestError("Failed to install the required packages.")
-    if not os.path.exists(br_path):
-        LOG.info("There is no bridge named '%s' on the host" % linux_bridge_name)
-        return
+    # Check if bridge exists based on session type
+    if session:
+        # For remote sessions, check bridge existence via command
+        bridge_exists = session.cmd_status("ip link show %s" % linux_bridge_name) == 0
+    else:
+        # For local execution, check filesystem
+        br_path = "/sys/class/net/%s" % linux_bridge_name
+        bridge_exists = os.path.exists(br_path)
+
+    if not bridge_exists:
+        LOG.info("Bridge '%s' does not exist on the host" % linux_bridge_name)
+        return (0, "Bridge does not exist")
+
     if iface_name:
         cmd = (
-            'tmux -c "ip link set {1} nomaster; ip link delete {0}; pkill dhclient; '
-            'sleep 5; dhclient {1}"'.format(linux_bridge_name, iface_name)
+            'tmux -c "ip link set {1} nomaster; '
+            "dhclient -r {0} || true; dhclient -r {1} || true; "
+            'ip link delete {0}; sleep 5; dhclient {1}"'.format(
+                linux_bridge_name, iface_name
+            )
         )
     else:
         cmd = "ip link delete %s" % linux_bridge_name
+
     return utils_misc.cmd_status_output(
-        cmd, shell=True, verbose=True, ignore_status=ignore_status
+        cmd, shell=True, verbose=True, ignore_status=ignore_status, session=session
     )
 
 

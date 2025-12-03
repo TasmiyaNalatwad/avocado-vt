@@ -4,7 +4,6 @@ import os
 import re
 import shutil
 import sys
-from distutils import dir_util  # virtualenv problem pylint: disable=E0611
 
 from avocado.utils import cpu, distro, genio, linux_modules
 from avocado.utils import path as utils_path
@@ -44,7 +43,7 @@ mandatory_programs = {
     "v2v": basic_program_requirements,
     "libguestfs": basic_program_requirements,
     "virttools": basic_program_requirements
-    + ["virt-install", "virt-clone", "virt-manager", "virt-xml"],
+    + ["virt-install", "virt-clone", "virt-xml"],
 }
 
 mandatory_headers = {
@@ -910,7 +909,7 @@ def bootstrap(options, interactive=False):
     LOG.info("%d - Updating test providers repo configuration from local copy", step)
     tp_base_dir = data_dir.get_base_test_providers_dir()
     tp_local_dir = data_dir.get_test_providers_dir()
-    dir_util.copy_tree(tp_base_dir, tp_local_dir)
+    shutil.copytree(tp_base_dir, tp_local_dir, dirs_exist_ok=True)
 
     not_downloaded = asset.test_providers_not_downloaded()
     if not_downloaded:
@@ -950,7 +949,7 @@ def bootstrap(options, interactive=False):
     LOG.info(
         "%d - Syncing backend dirs %s -> %s", step, base_backend_dir, local_backend_dir
     )
-    dir_util.copy_tree(base_backend_dir, local_backend_dir)
+    shutil.copytree(base_backend_dir, local_backend_dir, dirs_exist_ok=True)
 
     sync_download_dir(interactive)
 

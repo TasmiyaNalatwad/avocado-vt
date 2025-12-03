@@ -103,7 +103,6 @@ def terminate_unattended_server_thread():
 
 
 class RemoteInstall(object):
-
     """
     Represents a install http server that we can master according to our needs.
     """
@@ -133,7 +132,6 @@ class RemoteInstall(object):
 
 
 class UnattendedInstallConfig(object):
-
     """
     Creates a floppy disk image that will contain a config file for unattended
     OS install. The parameters to the script are retrieved from environment
@@ -208,6 +206,7 @@ class UnattendedInstallConfig(object):
             "virtio_viofs_path",
             "virtio_fwcfg_path",
             "virtio_viomem_path",
+            "virtio_viosock_path",
             "virtio_oemsetup_id",
             "virtio_network_installer_path",
             "virtio_balloon_installer_path",
@@ -490,6 +489,12 @@ class UnattendedInstallConfig(object):
             pkgs = self.params.get("kickstart_lock_pkgs", "")
             contents = re.sub(dummy_lock_pkgs_re, pkgs, contents)
 
+        dummy_bootc_image_re = r"\bBOOTC_IMAGE\b"
+        if re.search(dummy_bootc_image_re, contents):
+            # Path to the bootloader image
+            bootc_image = self.params.get("kickstart_bootc_image", "")
+            contents = re.sub(dummy_bootc_image_re, bootc_image, contents)
+
         dummy_logging_re = r"\bKVM_TEST_LOGGING\b"
         if re.search(dummy_logging_re, contents):
             if self.syslog_server_enabled == "yes":
@@ -619,6 +624,7 @@ class UnattendedInstallConfig(object):
                 self.virtio_viofs_path,
                 self.virtio_fwcfg_path,
                 self.virtio_viomem_path,
+                self.virtio_viosock_path,
             ]
 
             # XXX: Force to replace the drive letter which loaded the

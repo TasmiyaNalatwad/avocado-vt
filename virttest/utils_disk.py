@@ -3,6 +3,7 @@ Virtualization test - Virtual disk related utility functions
 
 :copyright: Red Hat Inc.
 """
+
 import configparser
 import glob
 import logging
@@ -16,6 +17,7 @@ import string
 import tempfile
 from functools import cmp_to_key
 
+import aexpect
 from avocado.core import exceptions
 from avocado.utils import process, wait
 from avocado.utils.service import SpecificServiceManager
@@ -63,7 +65,9 @@ def copytree(src, dst, overwrite=True, ignore=""):
             shutil.copy(src_file, dst_dir)
 
 
-def is_mount(src, dst=None, fstype=None, options=None, verbose=False, session=None):
+def is_mount(
+    src=None, dst=None, fstype=None, options=None, verbose=False, session=None
+):
     """
     Check is src or dst mounted.
 
@@ -75,32 +79,28 @@ def is_mount(src, dst=None, fstype=None, options=None, verbose=False, session=No
 
     :return: True if mounted, else return False
     """
-    mount_str = "%s %s %s" % (src, dst, fstype)
-    mount_str = mount_str.replace("None", "").strip()
-    mount_list_cmd = "cat /proc/mounts"
+    mount_options = [("-S", src), ("-M", dst), ("-t", fstype), ("-O", options)]
+    mount_opts = " ".join(f"{opt} {val}" for opt, val in mount_options if val)
+    if mount_opts == "":
+        raise exceptions.TestError("Mount options is empty, it is meaningless")
+    mount_check_cmd = f"findmnt -J {mount_opts}"
 
-    if session:
-        mount_result = session.cmd_output_safe(mount_list_cmd)
-    else:
-        mount_result = process.run(mount_list_cmd, shell=True).stdout_text
-    if verbose:
-        LOG.debug("/proc/mounts contents:\n%s", mount_result)
+    mount_result = None
+    try:
+        if session:
+            mount_result = session.cmd(mount_check_cmd)
+        else:
+            mount_result = process.run(mount_check_cmd, shell=True).stdout_text
+        if verbose:
+            LOG.info("Output of findmnt: %s", mount_result)
+    except (process.CmdError, aexpect.exceptions.ShellCmdError) as e:
+        LOG.error("Exception info: %s", e)
+        return False
 
-    for result in mount_result.splitlines():
-        if mount_str in result:
-            if options:
-                options = options.split(",")
-                options_result = result.split()[3].split(",")
-                for op in options:
-                    if op not in options_result:
-                        if verbose:
-                            LOG.info(
-                                "%s is not mounted with given" " option %s", src, op
-                            )
-                        return False
-            if verbose:
-                LOG.info("%s is mounted", src)
-            return True
+    if mount_result:
+        if verbose:
+            LOG.info("%s is mounted", src)
+        return True
     if verbose:
         LOG.info("%s is not mounted", src)
     return False
@@ -486,7 +486,7 @@ def delete_partition_linux(session, partition_name, timeout=360):
                     err_msg = "Failed to umount partition '%s'"
                     raise exceptions.TestError(err_msg % partition_name)
             break
-    session.cmd(rm_cmd % (kname, partition[0]))
+    session.cmd(rm_cmd % (kname, re.findall(r"\d+", partition[0])[0]))
     session.cmd("partprobe /dev/%s" % kname, timeout=timeout)
     if not wait.wait_for(
         lambda: not re.search(regex, session.cmd(ls_block_cmd), re.M),
@@ -1323,7 +1323,6 @@ def dd_data_to_vm_disk(session, disk, bs="1M", seek="0", count="100"):
 
 
 class Disk(object):
-
     """
     Abstract class for Disk objects, with the common methods implemented.
     """
@@ -1352,7 +1351,6 @@ class Disk(object):
 
 
 class FloppyDisk(Disk):
-
     """
     Represents a floppy disk. We can copy files to it, and setup it in
     convenient ways.
@@ -1469,7 +1467,6 @@ class FloppyDisk(Disk):
 
 
 class CdromDisk(Disk):
-
     """
     Represents a CDROM disk that we can master according to our needs.
     """
@@ -1544,7 +1541,6 @@ class CdromDisk(Disk):
 
 
 class CdromInstallDisk(Disk):
-
     """
     Represents a install CDROM disk that we can master according to our needs.
     """
@@ -1600,7 +1596,6 @@ class CdromInstallDisk(Disk):
 
 
 class GuestFSModiDisk(object):
-
     """
     class of guest disk using guestfs lib to do some operation(like read/write)
     on guest disk:

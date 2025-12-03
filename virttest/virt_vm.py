@@ -12,6 +12,7 @@ import traceback
 import six
 from aexpect import remote
 from aexpect.exceptions import ExpectError, ShellError
+from aexpect.utils import astring
 from avocado.core import exceptions
 from six.moves import xrange
 
@@ -470,7 +471,6 @@ class VMSMPTopologyInvalidError(VMError):
 
 
 class CpuInfo(object):
-
     """
     A class for VM's cpu information.
     """
@@ -553,7 +553,6 @@ def session_handler(func):
 
 
 class BaseVM(object):
-
     """
     Base class for all hypervisor specific VM subclasses.
 
@@ -926,6 +925,7 @@ class BaseVM(object):
         """
         Wait for a nic to acquire an IP address, then return it.
         """
+
         # Don't let VMIPAddressMissingError/VMAddressVerificationError through
         def _get_address():
             try:
@@ -1564,7 +1564,9 @@ class BaseVM(object):
         """
         cmd = self.params.get(check_cmd)
         out = self.session.cmd_output_safe(cmd)
-        return int(re.search("\d+", out, re.M).group())
+        # Removing the escape sequence from the output
+        out_no_escape = astring.strip_console_codes(out)
+        return int(re.search("\d+", out_no_escape, re.M).group())
 
     def get_memory_size(self, cmd=None, timeout=60):
         """
@@ -1788,16 +1790,24 @@ class BaseVM(object):
         """
         Save the virtual machine as the tag 'tag_name'
 
-        :param tag_name: tag of the virtual machine that saved
+        :param tag_name: tag for the virtual machine
 
         """
         raise NotImplementedError
 
     def loadvm(self, tag_name):
         """
-        Load the virtual machine tagged 'tag_name'.
+        Load the virtual machine from the tag 'tag_name'.
 
-        :param tag_name: tag of the virtual machine that saved
+        :param tag_name: tag for the virtual machine
+        """
+        raise NotImplementedError
+
+    def delvm(self, tag_name):
+        """
+        Delete the virtual machine tag 'tag_name'.
+
+        :param tag_name: tag for the virtual machine
         """
         raise NotImplementedError
 

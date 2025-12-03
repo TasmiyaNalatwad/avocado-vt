@@ -46,7 +46,6 @@ LOG = logging.getLogger("avocado." + __name__)
 
 
 class Uri(object):
-
     """
     This class is used for generating uri.
     """
@@ -132,7 +131,6 @@ class Uri(object):
 
 
 class Target(object):
-
     """
     This class is used for generating command options.
     """
@@ -362,12 +360,14 @@ class Target(object):
                 # Invalid vddk thumbprint if no ':'
                 if self.vddk_thumbprint is None or ":" not in self.vddk_thumbprint:
                     self.vddk_thumbprint = get_vddk_thumbprint(
-                        *(self.esxi_host, self.esxi_password, self.src_uri_type)
-                        if self.src_uri_type == "esx"
-                        else (
-                            self.vcenter_host,
-                            self.vcenter_password,
-                            self.src_uri_type,
+                        *(
+                            (self.esxi_host, self.esxi_password, self.src_uri_type)
+                            if self.src_uri_type == "esx"
+                            else (
+                                self.vcenter_host,
+                                self.vcenter_password,
+                                self.src_uri_type,
+                            )
                         )
                     )
 
@@ -594,7 +594,6 @@ class Target(object):
 
 
 class VMCheck(object):
-
     """
     This is VM check class dispatcher.
     """
@@ -726,7 +725,6 @@ class VMCheck(object):
 
 
 class LinuxVMCheck(VMCheck):
-
     """
     This class handles all basic linux VM check operations.
     """
@@ -1009,7 +1007,6 @@ class LinuxVMCheck(VMCheck):
 
 
 class WindowsVMCheck(VMCheck):
-
     """
     This class handles all basic Windows VM check operations.
     """
@@ -1031,6 +1028,24 @@ class WindowsVMCheck(VMCheck):
         if name:
             cmd += " " + name
         return self.run_cmd(cmd)[1]
+
+    def get_enumeration_drivers(self):
+        """
+        get enumeration drivers.
+        """
+        # WOW64 file system redirection can cause issues. Use SysNative for
+        # 64-bit systems when available.
+        status, _ = self.run_cmd(r"dir c:\windows\SysNative", debug=False)
+        if status == 0:
+            pnputil_path = r"c:\windows\SysNative\pnputil.exe"
+        else:
+            pnputil_path = r"c:\windows\System32\pnputil.exe"
+        LOG.debug("Using pnputil from: %s", pnputil_path)
+        cmd = r"%s -e" % pnputil_path
+        status, output = self.run_cmd(cmd)
+        if status != 0:
+            LOG.warning("pnputil command failed with status %s", status)
+        return output
 
     def get_driver_info(self, signed=True):
         """
@@ -1860,11 +1875,12 @@ def compare_version(interval, version=None, cmd=None):
     """
     if not version:
         if not cmd:
-            cmd = "rpm -q virt-v2v"
+            cmd = "rpm -q --qf '%{RPMTAG_VERSION} %{RPMTAG_RELEASE}\n' virt-v2v"
         res = process.run(cmd, shell=True, ignore_status=True)
         if res.exit_status != 0:
             return False
-        version = res.stdout_text.strip()
+        v, r = res.stdout_text.split()
+        version = "-".join((v, r.split(".")[0]))
 
     return check_version(version, interval)
 
@@ -1891,8 +1907,11 @@ def multiple_versions_compare(interval):
             return False
 
         pkg_name = re.search(re_pkg_name, ver).group(1)
-        cmd = "rpm -q %s" % pkg_name
-        if not compare_version(ver_i, cmd=cmd):
+        _ver_i = re.sub(pkg_name + "-", "", ver_i)
+        cmd = 'rpm -q --qf "%{{RPMTAG_VERSION}} %{{RPMTAG_RELEASE}}\\n" {}'.format(
+            pkg_name
+        )
+        if not compare_version(_ver_i, cmd=cmd):
             return False
 
     return True

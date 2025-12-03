@@ -1,6 +1,7 @@
 """
 Functions and classes used for logging into guests and transferring files.
 """
+
 from __future__ import division
 
 import logging
@@ -22,7 +23,6 @@ LOG = logging.getLogger("avocado." + __name__)
 
 
 class AexpectIOWrapperOut(messenger.StdIOWrapperOutBase64):
-
     """
     Basic implementation of IOWrapper for stdout
     """
@@ -212,7 +212,6 @@ class Remote_Package(object):
 
 
 class RemoteFile(object):
-
     """
     Class to handle the operations of file on remote host or guest.
     """
@@ -275,8 +274,10 @@ class RemoteFile(object):
         # Get file from remote.
         try:
             self._pull_file()
-        except SCPTransferFailedError:
-            # Remote file doesn't exist, create empty file on local
+        except Exception as e:
+            LOG.debug("Remote file doesn't exist.")
+            LOG.debug("Create empty file on local.")
+            LOG.debug(f"Error was {e}")
             self._write_local([])
 
         # Save a backup.
@@ -307,10 +308,10 @@ class RemoteFile(object):
                 self.port,
                 self.remote_path,
                 self.local_path,
-                self.limit,
-                self.log_filename,
-                self.verbose,
-                self.timeout,
+                limit=self.limit,
+                log_filename=self.log_filename,
+                verbose=self.verbose,
+                timeout=self.timeout,
             )
 
     def _push_file(self):
@@ -328,10 +329,10 @@ class RemoteFile(object):
                 self.port,
                 self.local_path,
                 self.remote_path,
-                self.limit,
-                self.log_filename,
-                self.verbose,
-                self.timeout,
+                limit=self.limit,
+                log_filename=self.log_filename,
+                verbose=self.verbose,
+                timeout=self.timeout,
             )
 
     def _reset_file(self):
@@ -349,10 +350,10 @@ class RemoteFile(object):
                 self.port,
                 self.backup_path,
                 self.remote_path,
-                self.limit,
-                self.log_filename,
-                self.verbose,
-                self.timeout,
+                limit=self.limit,
+                log_filename=self.log_filename,
+                verbose=self.verbose,
+                timeout=self.timeout,
             )
 
     def _read_local(self):
@@ -457,7 +458,6 @@ class RemoteFile(object):
 
 
 class RemoteRunner(object):
-
     """
     Class to provide a utils.run-like method to execute command on
     remote host or guest. Provide a similar interface with utils.run

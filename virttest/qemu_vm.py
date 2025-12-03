@@ -50,6 +50,7 @@ from virttest import (
 )
 from virttest.qemu_capabilities import Flags
 from virttest.qemu_devices import qcontainer, qdevices
+from virttest.qemu_devices.qdevice_format import qdevice_format
 from virttest.qemu_devices.utils import DeviceError, set_cmdline_format_by_cfg
 from virttest.utils_params import Params
 from virttest.utils_version import VersionInterval
@@ -80,7 +81,6 @@ class QemuSegFaultError(virt_vm.VMError):
 
 
 class VMMigrateProtoUnsupportedError(virt_vm.VMMigrateProtoUnknownError):
-
     """
     When QEMU tells us it doesn't know about a given migration protocol.
 
@@ -149,7 +149,6 @@ def qemu_proc_term_handler(vm, monitor_exit_status, exit_status):
 
 
 class VM(virt_vm.BaseVM):
-
     """
     This class handles all basic VM operations.
     """
@@ -292,11 +291,6 @@ class VM(virt_vm.BaseVM):
         :raise VMDeadError: If the VM is dead
         :raise: Various monitor exceptions if the monitor is unresponsive
         """
-        self.verify_disk_image_bootable()
-        self.verify_userspace_crash()
-        self.verify_kernel_crash()
-        self.verify_illegal_instruction()
-        self.verify_kvm_internal_error()
         try:
             virt_vm.BaseVM.verify_alive(self)
             if self.monitor:
@@ -305,6 +299,11 @@ class VM(virt_vm.BaseVM):
             raise virt_vm.VMDeadError(
                 self.process.get_status(), self.process.get_output()
             )
+        self.verify_disk_image_bootable()
+        self.verify_userspace_crash()
+        self.verify_kernel_crash()
+        self.verify_illegal_instruction()
+        self.verify_kvm_internal_error()
 
     def is_alive(self):
         """
@@ -500,6 +499,7 @@ class VM(virt_vm.BaseVM):
                nic_model -- string to pass as 'model' parameter for this
                NIC (e.g. e1000)
         """
+
         # Helper function for command line option wrappers
         def _add_option(option, value, option_type=None, first=False):
             """
@@ -735,7 +735,7 @@ class VM(virt_vm.BaseVM):
                 if model == "virtio-net-device":
                     dev.parent_bus = {"type": "virtio-bus"}
                 elif model == "virtio-net-ccw":  # For s390x platform
-                    dev.parent_bus = {"type": "virtual-css"}
+                    dev.parent_bus = {"type": "virtual-css-bus"}
                 elif model != "spapr-vlan":
                     dev.parent_bus = pci_bus
                     dev.set_param("addr", pci_addr)
@@ -1068,7 +1068,7 @@ class VM(virt_vm.BaseVM):
             machine_type = self.params.get("machine_type", "pc")
             if "s390" in machine_type:
                 dev_type = "virtio-rng-ccw"
-                parent_bus = None
+                parent_bus = {"type": "virtual-css-bus"}
             if devices.has_device(dev_type):
                 rng_pci = QDevice(dev_type, parent_bus=parent_bus)
                 set_dev_params(rng_pci, rng_params, None, "virtio-rng")
@@ -1651,7 +1651,7 @@ class VM(virt_vm.BaseVM):
             machine_type = self.params.get("machine_type")
             if "s390" in machine_type:  # For s390x platform
                 model = "virtio-balloon-ccw"
-                bus = {"type": "virtual-css"}
+                bus = {"type": "virtual-css-bus"}
             else:
                 model = "virtio-balloon-pci"
             dev = QDevice(model, parent_bus=bus)
@@ -1705,6 +1705,9 @@ class VM(virt_vm.BaseVM):
             e.g. -object sev-guest,id=lsec0
             """
             obj = devices.secure_guest_object_define_by_params("lsec0", params)
+            set_cmdline_format_by_cfg(
+                obj, self._get_cmdline_format_cfg(), "secure_guest"
+            )
             devices.insert(obj)
 
             machine_dev = devices.get_by_properties({"type": "machine"})[0]
@@ -1787,6 +1790,7 @@ class VM(virt_vm.BaseVM):
         qemu_binary = utils_misc.get_qemu_binary(params)
 
         self.qemu_binary = qemu_binary
+        qdevice_format.qemu_binary = self.qemu_binary
         self.qemu_version = process.run(
             "%s -version" % qemu_binary, verbose=False, ignore_status=True, shell=True
         ).stdout_text.split(",")[0]
@@ -2100,11 +2104,9 @@ class VM(virt_vm.BaseVM):
                     vcpu_threads = vcpu_threads or missing_value
             elif smp_values.count(0) > 1:
                 if vcpu_maxcpus == 1 and max(smp_values) < 2:
-                    vcpu_drawers = (
-                        vcpu_books
-                    ) = (
-                        vcpu_sockets
-                    ) = vcpu_dies = vcpu_clusters = vcpu_cores = vcpu_threads = 1
+                    vcpu_drawers = vcpu_books = vcpu_sockets = vcpu_dies = (
+                        vcpu_clusters
+                    ) = vcpu_cores = vcpu_threads = 1
 
             hotpluggable_cpus = len(params.objects("vcpu_devices"))
             if params["machine_type"].startswith("pseries"):
@@ -2569,6 +2571,15 @@ class VM(virt_vm.BaseVM):
             set_cmdline_format_by_cfg(dev, self._get_cmdline_format_cfg(), "images")
             devices.insert(dev)
 
+        # Add object pr-manager-helper
+        for pr_mgr in params.objects("pr_managers"):
+            pr_mgr_params = params.object_params(pr_mgr)
+            devs = devices.pr_manager_object_define_by_params(pr_mgr, pr_mgr_params)
+            set_cmdline_format_by_cfg(
+                devs[-1], self._get_cmdline_format_cfg(), "images"
+            )
+            devices.insert(devs)
+
         image_devs = []
         # Add images (harddrives)
         for image_name in params.objects("images"):
@@ -2829,7 +2840,11 @@ class VM(virt_vm.BaseVM):
                 if "-mmio:" in params.get("machine_type"):
                     dev_vsock = QDevice("vhost-vsock-device", vsock_params)
                 elif params.get("machine_type").startswith("s390"):
-                    dev_vsock = QDevice("vhost-vsock-ccw", vsock_params)
+                    dev_vsock = QDevice(
+                        "vhost-vsock-ccw",
+                        vsock_params,
+                        parent_bus={"type": "virtual-css-bus"},
+                    )
                 else:
                     dev_vsock = QDevice(
                         "vhost-vsock-pci", vsock_params, parent_bus=pci_bus
@@ -3103,8 +3118,12 @@ class VM(virt_vm.BaseVM):
             devices.insert(StrDev("noshutdown", cmdline="-no-shutdown"))
 
         user_runas = params.get("user_runas")
-        if devices.has_option("runas") and user_runas:
-            devices.insert(StrDev("runas", cmdline="-runas %s" % user_runas))
+        if devices.has_option("run-with") and user_runas:
+            devices.insert(
+                StrDev("user_runas", cmdline="-run-with user=%s" % user_runas)
+            )
+        elif devices.has_option("runas") and user_runas:
+            devices.insert(StrDev("user_runas", cmdline="-runas %s" % user_runas))
 
         if params.get("enable_sga") == "yes":
             devices.insert(StrDev("sga", cmdline=add_sga(devices)))
@@ -3159,7 +3178,11 @@ class VM(virt_vm.BaseVM):
             add_qemu_option(devices, "msg", [attr_info])
         if params.get("realtime_mlock"):
             if devices.has_option("overcommit"):
-                attr_info = ["mem-lock", params["realtime_mlock"], bool]
+                try:
+                    attr_type = type(params.get_boolean("realtime_mlock"))
+                except ValueError:
+                    attr_type = None
+                attr_info = ["mem-lock", params["realtime_mlock"], attr_type]
                 add_qemu_option(devices, "overcommit", [attr_info])
             else:
                 attr_info = ["mlock", params["realtime_mlock"], bool]
@@ -4075,7 +4098,7 @@ class VM(virt_vm.BaseVM):
                     session = self.login()
                 else:
                     session = self.serial_login()
-            except (IndexError) as e:
+            except IndexError as e:
                 try:
                     session = self.serial_login()
                 except (remote.LoginError, virt_vm.VMError) as e:
@@ -5384,7 +5407,7 @@ class VM(virt_vm.BaseVM):
             self.monitor.migrate(uri)
 
             if mig_inner_funcs:
-                for (func, param) in mig_inner_funcs:
+                for func, param in mig_inner_funcs:
                     if func == "postcopy":
                         # trigger a postcopy at somewhere below the given % of
                         # the 1st pass
@@ -5743,7 +5766,7 @@ class VM(virt_vm.BaseVM):
         Override BaseVM savevm method
         """
         self.verify_status("paused")  # Throws exception if not
-        LOG.debug("Saving VM %s to %s" % (self.name, tag_name))
+        LOG.debug("Saving snapshot %s from VM %s", tag_name, self.name)
         self.monitor.send_args_cmd("savevm id=%s" % tag_name)
         self.monitor.cmd("system_reset")
         self.verify_status("paused")  # Throws exception if not
@@ -5753,8 +5776,17 @@ class VM(virt_vm.BaseVM):
         Override BaseVM loadvm method
         """
         self.verify_status("paused")  # Throws exception if not
-        LOG.debug("Loading VM %s from %s" % (self.name, tag_name))
+        LOG.debug("Loading snapshot %s from VM %s", tag_name, self.name)
         self.monitor.send_args_cmd("loadvm id=%s" % tag_name)
+        self.verify_status("paused")  # Throws exception if not
+
+    def delvm(self, tag_name):
+        """
+        Override BaseVM delvm method
+        """
+        self.verify_status("paused")  # Throws exception if not
+        LOG.debug("Deleting snapshot %s from VM %s", tag_name, self.name)
+        self.monitor.send_args_cmd("delvm id=%s" % tag_name)
         self.verify_status("paused")  # Throws exception if not
 
     def pause(self):
@@ -5846,7 +5878,7 @@ class VM(virt_vm.BaseVM):
                 for key, value in six.iteritems(p_dict):
                     if is_json_data(value):
                         value = parse_json(value)
-                    for (k, v) in traverse_nested_dict(block):
+                    for k, v in traverse_nested_dict(block):
                         if is_json_data(v):
                             v = parse_json(v)
                         if k != key:

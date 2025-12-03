@@ -1,6 +1,7 @@
 """
 libvirt disk related utility functions
 """
+
 import collections
 import logging
 import os
@@ -37,6 +38,7 @@ def get_non_root_disk_name(session):
     return get_non_root_disk_names(session)[0]
 
 
+# pylint: disable=C0402
 def get_non_root_disk_names(session, ignore_status=False):
     """
     Returns the disk names under /dev whose device doesn't have any
@@ -54,6 +56,8 @@ def get_non_root_disk_names(session, ignore_status=False):
     But also considers corner cases where everything is for example on vda and
     no swap.
 
+    In case of image-mode run the structure can instead of "/" as root contain "sysroot"
+
     :param session: If given the command will be executed in this VM or
                     remote session.
     :param ignore_status: boolean, True to return, False to raise an exception
@@ -70,13 +74,14 @@ def get_non_root_disk_names(session, ignore_status=False):
     if s:
         raise exceptions.TestError("Couldn't list block devices: '%s'" % o)
     LOG.debug("lsblk output:\n%s", o)
+
     lines = o.split("\n").copy()
     root_disk = None
     root_mounted = False
     disk_pattern = re.compile(r"^([a-z]+|sr\d)[\s\t$]")
     entry_pattern = re.compile(r"(.*)[\s\t]+(.*)")
     idx = 0
-    while -1 < idx < len(lines) + 1:
+    while -1 < idx < len(lines):
         line = lines[idx]
         entry = entry_pattern.match(line)
         if not entry:
@@ -91,7 +96,7 @@ def get_non_root_disk_names(session, ignore_status=False):
             else:
                 idx = idx - 1
                 continue
-        if mpoint == "/":
+        if mpoint in ["/", "/sysroot"]:
             root_mounted = True
             if is_disk:
                 root_disk = line
@@ -119,6 +124,7 @@ def get_non_root_disk_names(session, ignore_status=False):
         return [(name.strip(), mpoint.strip()) for (name, mpoint) in names_mpoints]
 
 
+# pylint: enable=C0402
 def create_disk(
     disk_type, path=None, size="500M", disk_format="raw", extra="", session=None
 ):
@@ -774,13 +780,14 @@ def fill_null_in_vm(vm, target, size_value=500):
         raise exceptions.TestError(str(e))
 
 
-def check_virtual_disk_io(vm, partition, path="/dev/%s"):
+def check_virtual_disk_io(vm, partition, path="/dev/%s", umount=True):
     """
     Check if the disk partition in vm can be normally used.
 
     :param vm: Vm instance
     :param partition: the disk partition in vm to be checked.
     :param path: the folder path for the partition
+    :param umount: bool, if need to umount disk.
     :return: if the disk can be used, return True
     """
     session = None
@@ -789,11 +796,21 @@ def check_virtual_disk_io(vm, partition, path="/dev/%s"):
         cmd = (
             "fdisk -l && mkfs.ext4 -F {0} && "
             "mkdir -p test && mount {0} test && echo"
-            " teststring > test/testfile && umount test".format(path % partition)
+            " teststring > test/testfile".format(path % partition)
         )
         status, output = session.cmd_status_output(cmd)
         LOG.debug("Disk operation in VM:\nexit code:\n%s\noutput:\n%s", status, output)
-        return status == 0
+        if status != 0:
+            return False
+        if umount:
+            umount_cmd = "umount test"
+            u_status, u_output = session.cmd_status_output(umount_cmd)
+            LOG.debug(
+                "Disk operation in VM:\nexit code:\n%s\noutput:\n%s", u_status, u_output
+            )
+            if u_status != 0:
+                return False
+        return True
     except Exception as err:
         LOG.debug("Error happens when check disk io in vm: %s", str(err))
         return False

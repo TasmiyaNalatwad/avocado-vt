@@ -87,7 +87,6 @@ LOG = logging.getLogger("avocado." + __name__)
 
 
 class LibvirtNetwork(object):
-
     """
     Class to create a temporary network for testing.
     """
@@ -588,15 +587,27 @@ def setup_or_cleanup_iscsi(
     if is_setup:
         if is_login:
             _iscsi.login()
-            # The device doesn't necessarily appear instantaneously, so give
-            # about 5 seconds for it to appear before giving up
+            # The new block device might not become immediately available
+            # so wait for it both for iscsiadm as well as the filesystem
+            # to have finished the setup
             iscsi_device = utils_misc.wait_for(
                 _iscsi.get_device_name, 5, 0, 1, "Searching iscsi device name."
             )
+
             if iscsi_device:
+
+                def _device_name_exists():
+                    return os.path.exists(iscsi_device)
+
+                if not utils_misc.wait_for(
+                    _device_name_exists, timeout=10, first=0.1, step=0.5
+                ):
+                    raise exceptions.TestError(
+                        f"{iscsi_device} doesn't exist after 10 seconds"
+                    )
                 LOG.debug("iscsi device: %s", iscsi_device)
                 return iscsi_device
-            if not iscsi_device:
+            else:
                 LOG.error("Not find iscsi device.")
             # Cleanup and return "" - caller needs to handle that
             # _iscsi.export_target() will have set the emulated_id and
@@ -733,7 +744,7 @@ def verify_virsh_console(session, user, passwd, timeout=10, debug=False):
         # Do not use remote.handle_prompts here because it will inhibit the
         # login failure.
         # Sometimes kernel will continue printing more kernel infos after
-        # login prompts. We should do a check to determin if it's correct.
+        # login prompts. We should do a check to determine if it's correct.
         virsh_console_login(session, user, passwd, timeout, debug=debug)
         status, output = session.cmd_status_output(console_cmd)
         LOG.info("output of command:\n%s", output)
@@ -924,7 +935,7 @@ def check_actived_pool(pool_name):
     return True
 
 
-def check_vm_state(vm_name, state="paused", reason=None, uri=None):
+def check_vm_state(vm_name, state="paused", reason=None, uri=None, debug=False):
     """
     checks whether state of the vm is as expected
 
@@ -932,23 +943,23 @@ def check_vm_state(vm_name, state="paused", reason=None, uri=None):
     :param state: expected state of the VM
     :param reason: expected reason of vm state
     :param uri: connect uri
+    :param debug: if True, enable debug info
 
     :return: True if state of VM is as expected, False otherwise
     """
-    if not virsh.domain_exists(vm_name, uri=uri):
+    if not virsh.domain_exists(vm_name, uri=uri, debug=debug):
         return False
     if reason:
-        result = virsh.domstate(vm_name, extra="--reason", uri=uri)
+        result = virsh.domstate(vm_name, extra="--reason", uri=uri, debug=debug)
         expected_result = "%s (%s)" % (state.lower(), reason.lower())
     else:
-        result = virsh.domstate(vm_name, uri=uri)
+        result = virsh.domstate(vm_name, uri=uri, debug=debug)
         expected_result = state.lower()
     vm_state = result.stdout_text.strip()
     return vm_state.lower() == expected_result
 
 
 class PoolVolumeTest(object):
-
     """Test class for storage pool or volume"""
 
     def __init__(self, test, params):
@@ -4117,7 +4128,7 @@ def check_logfile(
 
     :param search_str: the string to be searched
     :param log_file: the given file
-    :param str_in_log: True if the file should include the given string,
+    :param str_in_log: bool, True if the file should include the given string,
                         otherwise, False
     :param cmd_parms: The parms for remote executing
     :param runner_on_target:  Remote runner
@@ -4134,6 +4145,7 @@ def check_logfile(
         cmdRes = process.run(cmd, shell=True, ignore_status=True)
     else:
         cmdRes = remote_old.run_remote_cmd(cmd, cmd_parms, runner_on_target)
+
     if str_in_log == bool(int(cmdRes.exit_status)):
         error_msg = "The string '{}' {} included in {}".format(
             search_str, "is not" if str_in_log else "is", log_file
