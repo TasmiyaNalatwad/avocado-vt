@@ -35,7 +35,7 @@ from virttest import (
     utils_misc,
     utils_package,
     utils_selinux,
-    virsh
+    virsh,
 )
 from virttest.remote import RemoteRunner
 from virttest.staging import service, utils_memory

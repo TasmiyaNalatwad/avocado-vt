@@ -217,9 +217,7 @@ def ensure_kdump_packages(vm, distro_info, install_missing=True, test=None):
         return False
 
     if missing_packages:
-        LOG.info(
-            "Installing missing packages in %s: %s", vm.name, missing_packages
-        )
+        LOG.info("Installing missing packages in %s: %s", vm.name, missing_packages)
         install_cmd = distro_info["pkg_install_cmd"].format(
             packages=" ".join(missing_packages)
         )
@@ -227,9 +225,7 @@ def ensure_kdump_packages(vm, distro_info, install_missing=True, test=None):
         if status:
             session.close()
             if test:
-                test.fail(
-                    "Failed to install packages in %s: %s" % (vm.name, output)
-                )
+                test.fail("Failed to install packages in %s: %s" % (vm.name, output))
             return False
         session.close()
         return True
@@ -281,8 +277,7 @@ def ensure_crash_utility_packages(
         session.close()
         if test:
             test.error(
-                "Missing crash utility packages in %s: %s"
-                % (vm.name, missing_packages)
+                "Missing crash utility packages in %s: %s" % (vm.name, missing_packages)
             )
         return
 
@@ -356,8 +351,8 @@ def configure_kdump(vm, distro_info, crashkernel_value="1024M", test=None):
         update_grub_cmd = (
             "sed -i.bak -E "
             "'/^{grub_cmdline_key}=/ {{ "
-            "s/[[:space:]]+crashkernel=[^\"[:space:]]+//g; "
-            "s/\"$/ crashkernel={crashkernel_value}\"/; "
+            's/[[:space:]]+crashkernel=[^"[:space:]]+//g; '
+            's/"$/ crashkernel={crashkernel_value}"/; '
             "}}' "
             "{grub_file}"
         ).format(
@@ -408,9 +403,7 @@ def configure_kdump(vm, distro_info, crashkernel_value="1024M", test=None):
     if status:
         session.close()
         if test:
-            test.fail(
-                "Failed to enable kdump service in %s: %s" % (vm.name, output)
-            )
+            test.fail("Failed to enable kdump service in %s: %s" % (vm.name, output))
         return kdump_changed
 
     status, output = session.cmd_status_output(
@@ -419,9 +412,7 @@ def configure_kdump(vm, distro_info, crashkernel_value="1024M", test=None):
     if status:
         session.close()
         if test:
-            test.fail(
-                "Failed to start kdump service in %s: %s" % (vm.name, output)
-            )
+            test.fail("Failed to start kdump service in %s: %s" % (vm.name, output))
         return kdump_changed
 
     session.close()
@@ -585,9 +576,7 @@ def analyze_vmcore_with_crash(
     LOG.debug("Crash utility output: %s", crash_log)
     if "PID" not in crash_log or "crash>" not in crash_log:
         if test:
-            test.fail(
-                "Failed to debug %s vmcore using crash utility" % vm.name
-            )
+            test.fail("Failed to debug %s vmcore using crash utility" % vm.name)
 
 
 def check_guest_status(vm):
@@ -670,9 +659,7 @@ class KdumpManager:
                 test=self.test,
             )
             if packages_installed:
-                LOG.info(
-                    "Rebooting %s after kdump package installation", self.vm.name
-                )
+                LOG.info("Rebooting %s after kdump package installation", self.vm.name)
                 self.vm.reboot(session=None, timeout=240)
 
         if configure:
